@@ -72,11 +72,15 @@ const handleQrCreate = async (req, res) => {
 router.post('/qrcode/create', authMiddleware, handleQrCreate);
 router.post('/qrcode/generate', authMiddleware, handleQrCreate); // 兼容别名路由
 
-// 6. 轮询二维码扫码状态
-router.get('/qrcode/status/:sessionId', (req, res) => {
+// 6. 轮询二维码扫码状态（真实调用网盘接口）
+router.get('/qrcode/status/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
-  const status = panAccountService.checkQrStatus(sessionId);
-  res.json({ success: true, ...status });
+  try {
+    const status = await panAccountService.checkQrStatus(sessionId);
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.json({ success: false, status: 'waiting', message: '轮询异常: ' + err.message });
+  }
 });
 
 // 7. 确认扫码并绑定（模拟完成手机授权并入库Cookie）

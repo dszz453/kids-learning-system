@@ -4,6 +4,7 @@ let allResources = [];
 let currentTab = 'panSearch';
 let currentPlayerResource = null;
 let activeQrSessionId = null;
+let activeQrPanType = 'quark';
 let qrPollingTimer = null;
 let currentAdminUser = null;
 
@@ -687,57 +688,99 @@ async function startPanQrLogin(panType, panName) {
       body: JSON.stringify({ panType })
     });
     const data = await res.json();
-    if (!data.success) return alert(data.message);
+    if (!data.success || !data.session) {
+      alert(data.message || '生成扫码会话失败');
+      return;
+    }
 
-    activeQrSessionId = data.session.sessionId;
-    document.getElementById('qrModalTitle').innerHTML = `<i data-lucide="qr-code" class="w-4 h-4 text-brand-600"></i><span>扫码登录 ${panName}</span>`;
-    document.getElementById('qrCodeImage').src = data.session.qrCodeDataUrl;
-    document.getElementById('qrStatusText').innerText = `请使用手机 ${panName} App 扫描二维码授权登录`;
-    document.getElementById('qrModal').classList.remove('hidden');
+    const s = data.session;
+    activeQrSessionId = s.sessionId;
+    activeQrPanType = panType;
+
+    const modal = document.getElementById('qrModal');
+    const img = document.getElementById('qrCodeImage');
+    const statusEl = document.getElementById('qrStatusText');
+    const manualBtn = document.getElementById('btnQrManualCookie');
+    const simBtn = document.getElementById('btnQrSimulate');
+    const tipBox = document.getElementById('qrModeTip');
+
+    document.getElementById('qrModalTitle').innerHTML =
+      `<i data-lucide="qr-code" class="w-4 h-4 text-brand-600"></i><span>扫码登录 ${s.panName || panName}</span>`;
+
+    if (s.mode === 'real' && s.qrCodeDataUrl) {
+      // 真实扫码模式：展示网盘官方二维码
+      img.src = s.qrCodeDataUrl;
+      img.classList.remove('hidden');
+      statusEl.innerHTML = `<span class="text-slate-600">${s.tip || `请使用手机 ${s.panName} App 扫描二维码授权登录`}</span>`;
+      if (manualBtn) manualBtn.classList.add('hidden');
+      if (simBtn) simBtn.classList.add('hidden');
+      if (tipBox) tipBox.classList.add('hidden');
+    } else {
+      // 手动录入模式（UC / 天翼）
+      img.removeAttribute('src');
+      img.classList.add('hidden');
+      statusEl.innerHTML = `<span class="text-amber-700 font-medium">${s.tip || `${s.panName} 需手动录入 Cookie`}</span>`;
+      if (manualBtn) manualBtn.classList.remove('hidden');
+      if (simBtn) simBtn.classList.add('hidden');
+      if (tipBox) {
+        tipBox.classList.remove('hidden');
+        tipBox.innerHTML = `📌 <strong>${s.panName}</strong> 未开放自动扫码授权，请点击下方「手动填写 Cookie」，从电脑浏览器（F12 → Network → 复制 Cookie）获取后粘贴保存。`;
+      }
+    }
+
+    modal.classList.remove('hidden');
     initIcons();
 
-    // 启动状态轮询
-    if (qrPollingTimer) clearInterval(qrPollingTimer);
-    qrPollingTimer = setInterval(async () => {
-      if (!activeQrSessionId) return;
-      const r = await fetch(`/api/pan/qrcode/status/${activeQrSessionId}`);
-      const st = await r.json();
-      if (st.status === 'confirmed') {
-        clearInterval(qrPollingTimer);
-        document.getElementById('qrStatusText').innerText = '✓ 扫码授权成功！Cookie已入库。';
-        setTimeout(() => {
-          closeModal('qrModal');
-          loadPanAccounts();
-        }, 1200);
-      }
-    }, 2500);
+    // 仅真实扫码模式启动轮询
+    if (qrPollingTimer) { clearInterval(qrPollingTimer); qrPollingTimer = null; }
+    if (s.mode === 'real') {
+      qrPollingTimer = setInterval(async () => {
+        if (!activeQrSessionId) return;
+        try {
+          const r = await fetch(`/api/pan/qrcode/status/${activeQrSessionId}`);
+          const st = await r.json();
+          const el = document.getElementById('qrStatusText');
+          if (!el) return;
+          if (st.status === 'confirmed') {
+            clearInterval(qrPollingTimer); qrPollingTimer = null;
+            el.innerHTML = '<span class="text-emerald-600 font-bold">✓ 扫码授权成功！Cookie 已入库</span>';
+            setTimeout(() => {
+              closeModal('qrModal');
+              loadPanAccounts();
+            }, 1200);
+          } else if (st.status === 'scanned') {
+            el.innerHTML = '<span class="text-amber-600 font-bold">已扫码，请在手机上点击确认登录…</span>';
+          } else if (st.status === 'expired') {
+            clearInterval(qrPollingTimer); qrPollingTimer = null;
+            el.innerHTML = '<span class="text-rose-600 font-bold">二维码已过期，请关闭后重新生成</span>';
+          } else if (st.status === 'manual_required') {
+            clearInterval(qrPollingTimer); qrPollingTimer = null;
+            el.innerText = st.message;
+          } else {
+            el.innerHTML = `<span class="text-slate-600">${st.message || '等待扫码中…'}</span>`;
+          }
+        } catch (e) { /* 单次轮询失败忽略 */ }
+      }, 2500);
+    }
 
   } catch (err) {
     alert('生成扫码二维码失败：' + err.message);
   }
 }
 
-async function simulateQrConfirm() {
-  if (!activeQrSessionId) return;
-  try {
-    const res = await fetch('/api/pan/qrcode/confirm', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
-      },
-      body: JSON.stringify({ sessionId: activeQrSessionId })
-    });
-    const result = await res.json();
-    if (result.success) {
-      alert(result.message);
-      closeModal('qrModal');
-      loadPanAccounts();
-    } else {
-      alert(result.message);
-    }
-  } catch (e) {
-    alert('确认失败: ' + e.message);
+/**
+ * 扫码弹窗内直接跳转手动 Cookie 录入
+ */
+function switchQrToManualCookie() {
+  const session = activeQrSessionId || '';
+  const panType = session.includes('baidu') ? 'baidu'
+    : session.includes('quark') ? 'quark'
+    : session.includes('uc') ? 'uc'
+    : session.includes('cloud189') ? 'cloud189'
+    : (activeQrPanType || 'quark');
+  closeModal('qrModal');
+  if (typeof promptManualCookie === 'function') {
+    promptManualCookie(panType);
   }
 }
 
