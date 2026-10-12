@@ -47,7 +47,8 @@
         <div>
           <h1 class="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
             少儿智能学习管理后台
-            <span class="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 font-medium border border-brand-200">v1.0 Pro</span>
+            <button id="appVersionBadge" onclick="showVersionInfo()" title="点击查看版本与更新日志"
+                    class="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 font-bold border border-brand-200 hover:bg-brand-100 transition">V1.0</button>
           </h1>
           <p class="text-xs text-slate-500">网盘搜索转存 · 树状目录 · 加速播放 · AI伴学配置</p>
         </div>
@@ -1206,6 +1207,7 @@
       <div>
         <h3 class="text-lg font-bold text-slate-900">少儿智能学习系统 · 管理控制台</h3>
         <p class="text-xs text-slate-500 mt-1">请输入管理员账号和密码以进入控制中心</p>
+        <p class="text-[10px] text-slate-400 mt-1">当前版本 <span class="appVersionText font-bold text-brand-600">V1.0</span></p>
       </div>
 
       <div class="space-y-3.5 text-left">

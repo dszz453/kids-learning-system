@@ -11,6 +11,7 @@ let currentAdminUser = null;
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
   initIcons();
+  loadAppVersion(); // 拉取并展示线上真实版本号
   checkAdminAuth(); // 优先校验管理员身份
   loadPansouConfig(); // 载入并回显 Pansou 服务地址与状态
   loadPancheckConfig(); // 载入并回显 PanCheck 探针服务地址与状态
@@ -47,6 +48,37 @@ function resolveStreamUrl(rawUrl, mode) {
   if (mode === 'audio') return `/api/stream/audio-extract?url=${encodeURIComponent(u)}`;
   if (mode === 'pdf') return `/api/stream/pdf?url=${encodeURIComponent(u)}`;
   return `/api/stream/play?url=${encodeURIComponent(u)}&speedup=true`;
+}
+
+// ==================== 版本号展示 ====================
+// 版本唯一来源为服务端 package.json，前端每次加载都从 /api/version 读取，避免前后端版本不一致
+let appVersionInfo = null;
+
+async function loadAppVersion() {
+  try {
+    const r = await fetch('/api/version');
+    const d = await r.json();
+    if (!d || !d.success) return;
+    appVersionInfo = d;
+    const badge = document.getElementById('appVersionBadge');
+    if (badge) badge.innerText = d.version;
+    document.querySelectorAll('.appVersionText').forEach(el => { el.innerText = d.version; });
+    document.title = `少儿智能学习系统 ${d.version} - 管理后台`;
+  } catch (e) {
+    // 版本号展示失败不影响主流程
+  }
+}
+
+function showVersionInfo() {
+  const v = appVersionInfo;
+  if (!v) { alert('版本信息加载中，请稍后再试'); return; }
+  const log = (v.changelog || []).map(s => `  · ${s}`).join('\n');
+  alert(
+    `${v.name}  ${v.version}\n` +
+    `语义化版本：${v.semver}\n` +
+    `构建时间：${new Date(v.buildTime).toLocaleString()}\n\n` +
+    `本次版本更新要点：\n${log || '  · （无记录）'}`
+  );
 }
 
 // ==================== 管理员身份认证与登录控制 ====================

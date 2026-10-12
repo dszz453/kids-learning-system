@@ -5,7 +5,9 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
-    "dev": "node server/server.js"
+    "dev": "node server/server.js",
+    "bump": "node scripts/bump-version.js",
+    "version": "node -e \"console.log(require('./server/version').VERSION)\""
   },
   "dependencies": {
     "express": "^4.19.2",

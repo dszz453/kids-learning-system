@@ -17,6 +17,13 @@ LOCAL_DIR = os.path.dirname(os.path.abspath(__file__))
 #    用户扫码得到的网盘 Cookie、转存任务、目录与用户数据都写在这里，
 #    上传会直接覆盖掉线上真实凭据。种子数据请改用 server/seed 或管理端接口。
 FILES = [
+    "Dockerfile",
+    "docker-compose.yml",
+    "package.json",
+    "CHANGELOG.md",
+    "server/server.js",
+    "server/version.js",
+    "scripts/bump-version.js",
     "server/database.js",
     "server/routes/pan.js",
     "server/routes/resources.js",
@@ -97,6 +104,9 @@ run(f"cd {REMOTE_DIR} && docker compose up -d", "启动容器")
 time.sleep(6)
 run("docker ps --filter name=kids-learning-app --format '{{.Names}} | {{.Status}} | {{.Ports}}'", "容器状态")
 run("curl -s -m 10 -o /dev/null -w 'HTTP %{http_code}' http://localhost:3001/api/health", "健康检查")
+run("curl -s -m 10 http://localhost:3001/api/version", "版本信息 /api/version")
+run("curl -s -m 10 http://localhost:3001/admin/ | grep -o 'id=\"appVersionBadge\"[^>]*>[^<]*' | head -1", "管理端版本徽标")
+run("curl -s -m 10 http://localhost:3001/kids/ | grep -o 'id=\"appVersionBadge\"[^>]*>[^<]*' | head -1", "儿童端版本徽标")
 run("curl -s -m 10 http://localhost:3001/admin/ | grep -c adminLoginModal", "admin 登录弹窗存在性")
 run("curl -s -m 10 http://localhost:3001/kids/ | grep -c kidLoginModal", "kids 登录弹窗存在性")
 # 确认线上网盘授权数据未被覆盖

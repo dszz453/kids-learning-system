@@ -16,8 +16,23 @@ let currentKidUser = null;
 document.addEventListener('DOMContentLoaded', () => {
   initIcons();
   setupMediaSessionHandlers();
+  loadAppVersion(); // 拉取并展示线上真实版本号
   initKidAuth(); // 优先进行账号登录校验
 });
+
+// 版本号展示：唯一来源为服务端 package.json，经 /api/version 下发
+async function loadAppVersion() {
+  try {
+    const r = await fetch('/api/version');
+    const d = await r.json();
+    if (!d || !d.success) return;
+    const badge = document.getElementById('appVersionBadge');
+    if (badge) badge.innerText = d.version;
+    document.querySelectorAll('.appVersionText').forEach(el => { el.innerText = d.version; });
+  } catch (e) {
+    // 版本号展示失败不影响主流程
+  }
+}
 
 // ==================== 0.1 播放地址统一解析 ====================
 // 本地文件流 / 已代理地址直接复用，避免二次包装导致语义丢失（如息屏纯音频模式失效）

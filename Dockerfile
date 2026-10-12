@@ -25,6 +25,10 @@ RUN npm ci --only=production
 COPY server/ ./server/
 COPY public/ ./public/
 
+# 拷贝版本信息文件（/api/version 会读取 CHANGELOG.md 展示更新日志）
+COPY CHANGELOG.md ./CHANGELOG.md
+COPY scripts/ ./scripts/
+
 # 创建持久化数据目录
 RUN mkdir -p /app/data && chown -R node:node /app
 

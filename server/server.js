@@ -11,6 +11,7 @@ const streamRouter = require('./routes/stream');
 const usersRouter = require('./routes/users');
 const aiRouter = require('./routes/ai');
 const localDiskRouter = require('./routes/localDisk');
+const version = require('./version');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,12 +51,26 @@ app.get('/kids*', (req, res) => {
   res.sendFile(path.join(publicDir, 'kids/index.html'));
 });
 
-// 健康检查
+// 健康检查（携带版本信息）
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     system: 'Kids Learning & Pan Resource System',
+    version: version.VERSION,
+    semver: version.SEMVER,
     timestamp: new Date().toISOString()
+  });
+});
+
+// 版本信息与最新更新日志（管理端 / 儿童端启动时读取，保证展示的永远是线上真实版本）
+app.get('/api/version', (req, res) => {
+  res.json({
+    success: true,
+    name: version.NAME,
+    version: version.VERSION,
+    semver: version.SEMVER,
+    buildTime: version.BUILD_TIME,
+    changelog: version.getLatestChangelog()
   });
 });
 
