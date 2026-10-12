@@ -731,9 +731,10 @@ async function startPanQrLogin(panType, panName) {
     modal.classList.remove('hidden');
     initIcons();
 
-    // 仅真实扫码模式启动轮询
+    // 仅真实扫码模式启动轮询（百度为长轮询接口，适当放长间隔避免请求堆积）
     if (qrPollingTimer) { clearInterval(qrPollingTimer); qrPollingTimer = null; }
     if (s.mode === 'real') {
+      const pollInterval = panType === 'baidu' ? 4000 : 2500;
       qrPollingTimer = setInterval(async () => {
         if (!activeQrSessionId) return;
         try {
@@ -760,7 +761,7 @@ async function startPanQrLogin(panType, panName) {
             el.innerHTML = `<span class="text-slate-600">${st.message || '等待扫码中…'}</span>`;
           }
         } catch (e) { /* 单次轮询失败忽略 */ }
-      }, 2500);
+      }, pollInterval);
     }
 
   } catch (err) {

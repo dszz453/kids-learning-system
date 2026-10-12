@@ -281,7 +281,13 @@ class PanAccountService {
       }
       return { sessionId: session.sessionId, panType: 'quark', status: 'waiting', message: '等待扫码中...' };
     } catch (e) {
-      return { sessionId: session.sessionId, panType: 'quark', status: 'waiting', message: '轮询中: ' + e.message };
+      const isTimeout = e.code === 'ECONNABORTED' || /timeout/i.test(e.message || '');
+      return {
+        sessionId: session.sessionId,
+        panType: 'quark',
+        status: 'waiting',
+        message: isTimeout ? '请使用夸克 App 扫描二维码登录' : ('轮询异常: ' + e.message)
+      };
     }
   }
 
@@ -347,7 +353,14 @@ class PanAccountService {
       }
       return { sessionId: session.sessionId, panType: 'baidu', status: 'waiting', message: '请使用百度网盘 App 扫描二维码登录' };
     } catch (e) {
-      return { sessionId: session.sessionId, panType: 'baidu', status: 'waiting', message: '轮询中: ' + e.message };
+      // 百度 unicast 为长轮询接口，未扫码时会挂起至超时，属正常等待状态
+      const isTimeout = e.code === 'ECONNABORTED' || /timeout/i.test(e.message || '');
+      return {
+        sessionId: session.sessionId,
+        panType: 'baidu',
+        status: 'waiting',
+        message: isTimeout ? '请使用百度网盘 App 扫描二维码登录' : ('轮询异常: ' + e.message)
+      };
     }
   }
 
