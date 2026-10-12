@@ -1,0 +1,9 @@
+node_modules/
+.dockerignore
+*.log
+*.tar.gz
+*.tmp
+*.py
+*.txt
+.git/
+.workbuddy-ai/

@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>少儿智能学习系统 - 管理后台</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#EEF2FF',
+              100: '#E0E7FF',
+              500: '#6366F1',
+              600: '#4F46E5',
+              700: '#4338CA',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* 自定义美化滚动条 */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #F1F5F9; }
+    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+    .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+  <!-- 顶部导航栏 -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center text-white shadow-md shadow-brand-500/20 text-xl font-bold">
+          🎓
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            少儿智能学习管理后台
+            <span class="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 font-medium border border-brand-200">v1.0 Pro</span>
+          </h1>
+          <p class="text-xs text-slate-500">网盘搜索转存 · 树状目录 · 加速播放 · AI伴学配置</p>
+        </div>
+      </div>
+
+      <!-- 右侧快捷跳转与用户信息 -->
+      <div class="flex items-center gap-3">
+        <a href="/kids" target="_blank" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition border border-emerald-200">
+          <i data-lucide="smartphone" class="w-4 h-4"></i>
+          <span>打开手机端 / PWA</span>
+        </a>
+
+        <div class="h-6 w-px bg-slate-200 mx-1"></div>
+
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-sm font-bold border border-slate-300">
+            A
+          </div>
+          <span class="text-xs font-medium text-slate-700 hidden sm:inline" id="topAdminName">管理员 (admin)</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col md:flex-row gap-6">
+
+    <!-- 左侧主侧边导航栏 -->
+    <aside class="w-full md:w-60 flex-shrink-0">
+      <nav class="space-y-1.5 sticky top-24" id="mainSidebarNav">
+        <button onclick="switchTab('panSearch')" id="tabBtn-panSearch" class="nav-tab-btn active w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition bg-brand-600 text-white shadow-sm shadow-brand-600/30">
+          <i data-lucide="search" class="w-4 h-4"></i>
+          <span>资源搜索与转存</span>
+        </button>
+
+        <button onclick="switchTab('panAccounts')" id="tabBtn-panAccounts" class="nav-tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+          <i data-lucide="qr-code" class="w-4 h-4"></i>
+          <span>网盘扫码配置</span>
+          <span id="badgePanStatus" class="ml-auto text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold">2在线</span>
+        </button>
+
+        <button onclick="switchTab('categories')" id="tabBtn-categories" class="nav-tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+          <i data-lucide="folder-tree" class="w-4 h-4"></i>
+          <span>树状目录管理</span>
+        </button>
+
+        <button onclick="switchTab('resources')" id="tabBtn-resources" class="nav-tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+          <i data-lucide="layers" class="w-4 h-4"></i>
+          <span>学习资源库</span>
+          <span id="badgeResCount" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 font-medium">8</span>
+        </button>
+
+        <button onclick="switchTab('localDisk')" id="tabBtn-localDisk" class="nav-tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+          <i data-lucide="hard-drive" class="w-4 h-4"></i>
+          <span>本地硬盘导入</span>
+          <span class="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">免流</span>
+        </button>
+
+        <button onclick="switchTab('users')" id="tabBtn-users" class="nav-tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+          <i data-lucide="users" class="w-4 h-4"></i>
+          <span>用户与权限管理</span>
+        </button>
+
+        <button onclick="switchTab('aiConfig')" id="tabBtn-aiConfig" class="nav-tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+          <i data-lucide="bot" class="w-4 h-4"></i>
+          <span>AI 伴学接口配置</span>
+        </button>
+
+        <div class="pt-4 mt-4 border-t border-slate-200">
+          <div class="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs text-indigo-900 space-y-1.5">
+            <div class="font-bold flex items-center gap-1.5 text-indigo-700">
+              <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+              <span>非会员加速与息屏</span>
+            </div>
+            <p class="text-indigo-600/80 leading-relaxed">
+              系统内置 Range 多线程并发代理与纯音频流提取引擎，支持手机端息屏磨耳朵听课。
+            </p>
+          </div>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- 右侧内容主视区 -->
+    <main class="flex-1 min-w-0">
+
+      <!-- ==================== 模块 1：网盘资源搜索与存活检测与转存 (Pansou + PanCheck) ==================== -->
+      <section id="view-panSearch" class="tab-view block space-y-6">
+        <!-- 顶部搜索条 -->
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                <i data-lucide="search" class="w-5 h-5 text-brand-600"></i>
+                全网网盘儿童学习资源搜索 (集成 Pansou)
+              </h2>
+              <p class="text-xs text-slate-500">支持夸克网盘、百度网盘、UC网盘、天翼云盘等资源嗅探与存活侦测</p>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+              <span class="text-slate-500">推荐热搜：</span>
+              <button onclick="quickSearch('新概念英语')" class="px-2 py-0.5 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded text-slate-600 transition">新概念英语</button>
+              <button onclick="quickSearch('自然拼读')" class="px-2 py-0.5 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded text-slate-600 transition">自然拼读</button>
+              <button onclick="quickSearch('成语故事')" class="px-2 py-0.5 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded text-slate-600 transition">成语故事</button>
+              <button onclick="quickSearch('睡前绘本')" class="px-2 py-0.5 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded text-slate-600 transition">睡前绘本</button>
+            </div>
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <input type="text" id="panSearchInput" placeholder="输入学习资源关键词，如：新概念青少版、牛津树、奥数动画、唐诗..." 
+                     class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent text-sm">
+              <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-3"></i>
+            </div>
+            <select id="panTypeFilter" class="px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+              <option value="all">所有网盘 (聚合搜索)</option>
+              <option value="quark">夸克网盘</option>
+              <option value="baidu">百度网盘</option>
+              <option value="uc">UC网盘</option>
+              <option value="cloud189">天翼云盘</option>
+            </select>
+            <button onclick="doPanSearch()" class="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl shadow-md shadow-brand-500/25 transition flex items-center justify-center gap-2">
+              <i data-lucide="sparkles" class="w-4 h-4"></i>
+              <span>搜 索</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 单个链接快速探针检测与转存小工具 -->
+        <div class="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex flex-col md:flex-row items-center gap-3">
+          <div class="flex items-center gap-2 text-xs font-bold text-indigo-900 flex-shrink-0">
+            <span class="p-1.5 rounded-lg bg-indigo-600 text-white"><i data-lucide="shield-check" class="w-4 h-4"></i></span>
+            <span>PanCheck 链接探针：</span>
+          </div>
+          <input type="text" id="manualCheckUrl" placeholder="粘贴已有网盘分享链接 (如: https://pan.quark.cn/s/... 或 pan.baidu.com/s/...)" 
+                 class="flex-1 w-full px-3 py-1.5 text-xs rounded-lg border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <input type="text" id="manualCheckPwd" placeholder="提取码(可选)" 
+                 class="w-28 px-3 py-1.5 text-xs rounded-lg border border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <button onclick="checkSingleUrl()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition whitespace-nowrap">
+            探针检测存活
+          </button>
+        </div>
+
+        <!-- 搜索结果列表 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-slate-800 text-sm">搜索结果列表</h3>
+              <span id="searchResultTotal" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">共 11 条精选资源</span>
+            </div>
+            <button onclick="batchCheckAlive()" class="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>批量检测存活状态</span>
+            </button>
+          </div>
+
+          <div id="searchResultsContainer" class="divide-y divide-slate-100">
+            <!-- 动态渲染搜索结果 -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 模块 2：网盘扫码配置看板 ==================== -->
+      <section id="view-panAccounts" class="tab-view hidden space-y-6">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                <i data-lucide="qr-code" class="w-5 h-5 text-brand-600"></i>
+                四大网盘扫码登录与 Cookie 配置中心
+              </h2>
+              <p class="text-xs text-slate-500">配置个人网盘账号后，系统即可调用各网盘官方 API 自动化实现一键极速转存</p>
+            </div>
+            <button onclick="loadPanAccounts()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition flex items-center gap-1">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>刷新账号状态</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 网盘卡片网格 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="panAccountsGrid">
+          <!-- 动态渲染四大网盘卡片 -->
+        </div>
+
+        <!-- Cookie 原理说明 -->
+        <div class="bg-slate-100/70 p-4 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-2 leading-relaxed">
+          <p class="font-bold text-slate-800">💡 扫码与转存机制说明：</p>
+          <p>1. 点击对应网盘的「扫码授权」按钮，手机打开对应网盘 App 扫描二维码并点击确认，系统将安全捕获身份认证凭据 (Cookie/Token) 并加密存储于本地。</p>
+          <p>2. 支持手动填写/粘贴网盘 Cookies，也可直接一键使用内置演示授权模式进行全流程转存体验。</p>
+          <p>3. 转存成功后，资源文件将进入您的网盘私有目录，在前端播放时自动通过本系统的「Range并发直链代理引擎」实现非会员高速流畅播放！</p>
+        </div>
+      </section>
+
+      <!-- ==================== 模块 3：树状层级目录管理 ==================== -->
+      <section id="view-categories" class="tab-view hidden space-y-6">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+              <i data-lucide="folder-tree" class="w-5 h-5 text-brand-600"></i>
+              资源分类树状目录管理
+            </h2>
+            <p class="text-xs text-slate-500">支持无限层级扩展，如：乐学英语 ➔ 新概念英语青少版 ➔ 第一册课文</p>
+          </div>
+          <button onclick="openCategoryModal()" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-xl shadow transition flex items-center gap-1.5">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>新建一级或子目录</span>
+          </button>
+        </div>
+
+        <!-- 目录树状渲染区 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+          <div id="categoryTreeContainer" class="space-y-3">
+            <!-- 动态渲染树状结构 -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 模块 4：学习资源库与在线音视频PDF播放 ==================== -->
+      <section id="view-resources" class="tab-view hidden space-y-6">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+              <i data-lucide="layers" class="w-5 h-5 text-brand-600"></i>
+              儿童学习资源总库
+            </h2>
+            <p class="text-xs text-slate-500">管理视频课件、磨耳朵音频、高清PDF绘本教材，支持非会员加速直链与在线播放预览</p>
+          </div>
+          <button onclick="openResourceModal()" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-xl shadow transition flex items-center gap-1.5">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span>手动录入新资源</span>
+          </button>
+        </div>
+
+        <!-- 筛选栏 -->
+        <div class="flex flex-wrap items-center gap-3 bg-white p-4 rounded-xl border border-slate-200 text-xs">
+          <span class="text-slate-500 font-medium">筛选目录：</span>
+          <select id="resFilterCategory" onchange="loadResources()" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white">
+            <option value="">全部目录</option>
+          </select>
+
+          <span class="text-slate-500 font-medium ml-2">资源类型：</span>
+          <select id="resFilterType" onchange="loadResources()" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white">
+            <option value="">所有类型</option>
+            <option value="video">视频动画 (Video)</option>
+            <option value="audio">听书磨耳朵 (Audio)</option>
+            <option value="pdf">教材绘本 (PDF)</option>
+          </select>
+
+          <div class="relative ml-auto flex-1 max-w-xs">
+            <input type="text" id="resFilterKeyword" onkeyup="if(event.key==='Enter') loadResources()" placeholder="回车搜索资源标题或标签..." 
+                   class="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500">
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
+          </div>
+        </div>
+
+        <!-- 资源卡片表格 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase">
+                <tr>
+                  <th class="px-4 py-3">资源标题 / 封面</th>
+                  <th class="px-4 py-3">类型</th>
+                  <th class="px-4 py-3">所属目录</th>
+                  <th class="px-4 py-3">规格时长</th>
+                  <th class="px-4 py-3">网盘来源</th>
+                  <th class="px-4 py-3">非会员加速</th>
+                  <th class="px-4 py-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="resourcesTableBody" class="divide-y divide-slate-100">
+                <!-- 动态渲染 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 模块 4.5：本地硬盘资源扫描与导入 ==================== -->
+      <section id="view-localDisk" class="tab-view hidden space-y-6">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+              <i data-lucide="hard-drive" class="w-5 h-5 text-brand-600"></i>
+              本地硬盘媒体资源扫描与导入
+            </h2>
+            <p class="text-xs text-slate-500">支持读取本地硬盘挂载的视频、音频与PDF画册，零外网流量高速串流，支持息屏与加速</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 transition cursor-pointer flex items-center gap-1.5">
+              <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+              <span>上传文件到本地库</span>
+              <input type="file" id="localDirectUploadInput" onchange="uploadLocalFile(this)" class="hidden" accept="video/*,audio/*,.pdf">
+            </label>
+          </div>
+        </div>
+
+        <!-- 目录扫描工具条 -->
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+          <label class="block text-xs font-bold text-slate-700">指定本地硬盘目录路径 (可为宿主机挂载目录或绝对路径)</label>
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <input type="text" id="localDiskPathInput" value="data/local_media" placeholder="如：data/local_media 或 /app/data/local_media 或 D:/儿童学习资料" 
+                     class="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-300 font-mono text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none">
+              <i data-lucide="folder" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+            </div>
+            <button onclick="scanLocalDirectory()" id="btnScanLocal" class="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-md shadow-brand-500/25 transition flex items-center justify-center gap-1.5">
+              <i data-lucide="scan" class="w-4 h-4"></i>
+              <span>扫描本地目录</span>
+            </button>
+          </div>
+          <div class="flex items-center gap-2 text-[11px] text-slate-400">
+            <span>支持格式：MP4, MKV, WebM (视频) | MP3, M4A, FLAC, OGG (音频) | PDF (绘本教材)</span>
+          </div>
+        </div>
+
+        <!-- 扫描结果展示与批量导入列表 -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-slate-800 text-sm">扫描到的本地文件</h3>
+              <span id="localScanCountBadge" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">待扫描</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="toggleSelectAllLocal(true)" class="text-xs text-brand-600 hover:underline">全选</button>
+              <span class="text-slate-300">|</span>
+              <button onclick="toggleSelectAllLocal(false)" class="text-xs text-slate-500 hover:underline">取消全选</button>
+              <button onclick="importSelectedLocalFiles()" id="btnImportLocal" class="ml-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-1">
+                <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+                <span>批量导入至系统</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase">
+                <tr>
+                  <th class="px-4 py-3 w-10">选择</th>
+                  <th class="px-4 py-3">文件名 / 路径</th>
+                  <th class="px-4 py-3">媒体类型</th>
+                  <th class="px-4 py-3">大小</th>
+                  <th class="px-4 py-3">推荐归入目录</th>
+                </tr>
+              </thead>
+              <tbody id="localScanTableBody" class="divide-y divide-slate-100">
+                <tr>
+                  <td colspan="5" class="p-8 text-center text-slate-400">
+                    请在上方输入本地硬盘目录并点击「扫描本地目录」
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 模块 5：用户管理与权限控制 ==================== -->
+      <section id="view-users" class="tab-view hidden space-y-6">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+              <i data-lucide="users" class="w-5 h-5 text-brand-600"></i>
+              学生与用户权限管理
+            </h2>
+            <p class="text-xs text-slate-500">精准控制每个账号的访问有效期、密码、以及允许访问的目录层级权限</p>
+          </div>
+          <button onclick="openUserModal()" class="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-xl shadow transition flex items-center gap-1.5">
+            <i data-lucide="user-plus" class="w-4 h-4"></i>
+            <span>新建学生账号</span>
+          </button>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase">
+                <tr>
+                  <th class="px-4 py-3">账号 / 姓名</th>
+                  <th class="px-4 py-3">身份角色</th>
+                  <th class="px-4 py-3">年级阶段</th>
+                  <th class="px-4 py-3">有效截止时间</th>
+                  <th class="px-4 py-3">目录权限范围</th>
+                  <th class="px-4 py-3">账号状态</th>
+                  <th class="px-4 py-3 text-right">管理操作</th>
+                </tr>
+              </thead>
+              <tbody id="usersTableBody" class="divide-y divide-slate-100">
+                <!-- 动态渲染用户列表 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 模块 6：AI 接口与伴学智能体配置 ==================== -->
+      <section id="view-aiConfig" class="tab-view hidden space-y-6">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                <i data-lucide="bot" class="w-5 h-5 text-brand-600"></i>
+                AI 伴学智能体与大模型接口配置
+              </h2>
+              <p class="text-xs text-slate-500">配置大模型 API，智能体将结合系统内资源目录库，为不同年级孩子提供个性化学习建议与精准课程直达</p>
+            </div>
+            <button onclick="testAiConnection()" id="btnTestAi" class="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 transition flex items-center gap-1.5">
+              <i data-lucide="activity" class="w-4 h-4"></i>
+              <span>测试接口连通性</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1.5">模型提供商 (Provider)</label>
+              <select id="aiProvider" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                <option value="deepseek">DeepSeek (深度求索 / 推荐)</option>
+                <option value="openai">OpenAI (ChatGPT-4o / 3.5)</option>
+                <option value="qwen">通义千问 (Qwen-Turbo/Max)</option>
+                <option value="zhipu">智谱清言 (GLM-4)</option>
+                <option value="custom">兼容 OpenAI 规范的自定义中继</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1.5">模型名称 (Model Name)</label>
+              <input type="text" id="aiModel" placeholder="如：deepseek-chat, gpt-4o-mini, qwen-plus" 
+                     class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-xs font-bold text-slate-700 mb-1.5">API Base URL</label>
+              <input type="text" id="aiBaseUrl" placeholder="如：https://api.deepseek.com/v1 或 https://api.openai.com/v1" 
+                     class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-xs font-bold text-slate-700 mb-1.5">API Key</label>
+              <div class="relative">
+                <input type="password" id="aiApiKey" placeholder="输入您的 API Key (如 sk-xxxx...)" 
+                       class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none font-mono">
+                <button type="button" onclick="toggleApiKeyVisibility()" class="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 text-xs">显示/隐藏</button>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-1">系统已内置高精度儿童教育专家离线知识引擎，未配置 Key 时亦可秒级智能应答。</p>
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-xs font-bold text-slate-700 mb-1.5">智能伴学人设提示词 (System Prompt)</label>
+              <textarea id="aiSystemPrompt" rows="4" 
+                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none leading-relaxed"></textarea>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+            <span id="aiSaveTip" class="text-xs text-emerald-600 font-medium hidden">配置保存成功！</span>
+            <button onclick="saveAiConfig()" class="ml-auto px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-md shadow-brand-500/25 transition">
+              保存 AI 配置
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ==================== 模态框 1：网盘一键转存弹窗 ==================== -->
+  <div id="transferModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+          <i data-lucide="cloud-download" class="w-5 h-5 text-brand-600"></i>
+          <span>一键转存到网盘与系统目录</span>
+        </h3>
+        <button onclick="closeModal('transferModal')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">资源标题</label>
+          <input type="text" id="transferResTitle" class="w-full px-3 py-2 border rounded-xl font-medium" readonly>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div class="col-span-2">
+            <label class="block font-bold text-slate-700 mb-1">源分享链接</label>
+            <input type="text" id="transferShareUrl" class="w-full px-3 py-2 border rounded-xl" readonly>
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">提取码</label>
+            <input type="text" id="transferPwd" placeholder="无密码" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">目标转存网盘</label>
+            <select id="transferTargetPan" class="w-full px-3 py-2 border rounded-xl bg-white font-medium">
+              <option value="quark">夸克网盘 (主转存)</option>
+              <option value="baidu">百度网盘</option>
+              <option value="uc">UC网盘</option>
+              <option value="cloud189">天翼云盘</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">网盘内目标保存目录</label>
+            <input type="text" id="transferTargetDir" value="/儿童学习资源/精品课程/" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+        </div>
+
+        <div class="p-3 bg-brand-50 rounded-xl border border-brand-100 space-y-2">
+          <label class="flex items-center gap-2 font-bold text-brand-900 cursor-pointer">
+            <input type="checkbox" id="transferAutoImport" checked class="rounded text-brand-600 focus:ring-brand-500">
+            <span>转存成功后，自动同步导入学习系统目录：</span>
+          </label>
+          <select id="transferCategorySelect" class="w-full px-3 py-1.5 border rounded-lg bg-white text-xs">
+            <!-- 动态填充分类 -->
+          </select>
+          <div class="flex items-center gap-3 pt-1">
+            <span class="text-slate-600">资源类型：</span>
+            <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="transferType" value="video" checked> 视频</label>
+            <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="transferType" value="audio"> 音频</label>
+            <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="transferType" value="pdf"> PDF绘本</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button onclick="closeModal('transferModal')" class="px-4 py-2 border rounded-xl hover:bg-slate-50 text-xs">取消</button>
+        <button onclick="executeTransfer()" id="btnSubmitTransfer" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow flex items-center gap-1.5">
+          <i data-lucide="check" class="w-4 h-4"></i>
+          <span>确认执行转存</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 模态框 2：网盘扫码登录与二维码弹窗 ==================== -->
+  <div id="qrModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4">
+      <div class="flex items-center justify-between border-b pb-2">
+        <h3 class="font-bold text-slate-900 text-sm flex items-center gap-1.5" id="qrModalTitle">
+          <i data-lucide="qr-code" class="w-4 h-4 text-brand-600"></i>
+          <span>扫码绑定网盘</span>
+        </h3>
+        <button onclick="closeModal('qrModal')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+
+      <div class="py-2 flex flex-col items-center">
+        <div class="p-3 bg-white border border-slate-200 rounded-2xl shadow-sm inline-block">
+          <img id="qrCodeImage" src="" alt="二维码" class="w-48 h-48 object-contain">
+        </div>
+        <p class="text-xs text-slate-500 mt-3" id="qrStatusText">请打开手机 App 扫描二维码以获取授权</p>
+        <div class="flex items-center gap-1 text-[11px] text-amber-600 mt-1">
+          <i data-lucide="clock" class="w-3 h-3"></i>
+          <span>二维码 3 分钟内有效</span>
+        </div>
+      </div>
+
+      <div class="pt-2 border-t flex flex-col gap-2">
+        <button onclick="simulateQrConfirm()" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow transition flex items-center justify-center gap-1.5">
+          <i data-lucide="check-circle" class="w-4 h-4"></i>
+          <span>模拟手机确认扫码 (一键极速入库)</span>
+        </button>
+        <button onclick="closeModal('qrModal')" class="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-medium">
+          关闭窗口
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 模态框 3：分类目录新建/编辑弹窗 ==================== -->
+  <div id="categoryModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-2">
+        <h3 class="font-bold text-slate-900 text-sm" id="categoryModalTitle">新建目录</h3>
+        <button onclick="closeModal('categoryModal')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+
+      <input type="hidden" id="catFormId">
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">目录名称</label>
+          <input type="text" id="catFormName" placeholder="如：乐学英语、新概念青少版、开心故事" class="w-full px-3 py-2 border rounded-xl">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">父级目录 (留空为顶级模块)</label>
+            <select id="catFormParentId" class="w-full px-3 py-2 border rounded-xl bg-white">
+              <option value="">[无父级] 作为顶级一级大模块</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">卡通 Emoji 图标</label>
+            <select id="catFormEmoji" class="w-full px-3 py-2 border rounded-xl bg-white text-base">
+              <option value="🔤">🔤 字母与英语</option>
+              <option value="📜">📜 国学与历史</option>
+              <option value="🧸">🧸 故事与玩偶</option>
+              <option value="🚀">🚀 宇宙与科学</option>
+              <option value="🎨">🎨 美术与创意</option>
+              <option value="🎵">🎵 音乐与诵读</option>
+              <option value="📐">📐 数学与思维</option>
+              <option value="🦁">🦁 动物与自然</option>
+              <option value="📁">📁 经典文件夹</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">适学年龄/年级</label>
+            <input type="text" id="catFormGrade" placeholder="如：1-3年级, 幼儿园" value="全年龄段" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">排序权重 (数字越小越靠前)</label>
+            <input type="number" id="catFormSort" value="1" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">目录描述与学习引导语</label>
+          <textarea id="catFormDesc" rows="2" placeholder="简要描述本目录适合孩子的学习目标..." class="w-full px-3 py-2 border rounded-xl"></textarea>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button onclick="closeModal('categoryModal')" class="px-4 py-2 border rounded-xl hover:bg-slate-50 text-xs">取消</button>
+        <button onclick="saveCategory()" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow">
+          保存目录
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 模态框 4：用户新建/编辑与权限分配弹窗 ==================== -->
+  <div id="userModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-2">
+        <h3 class="font-bold text-slate-900 text-sm" id="userModalTitle">新建学生账号</h3>
+        <button onclick="closeModal('userModal')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+
+      <input type="hidden" id="userFormId">
+      <div class="space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">登录账号</label>
+            <input type="text" id="userFormUsername" placeholder="如：xiaoming" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">学生姓名 / 备注</label>
+            <input type="text" id="userFormNickname" placeholder="如：小明" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">登录密码 (编辑时留空不改)</label>
+            <input type="password" id="userFormPassword" placeholder="初始密码，如 123456" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">年级</label>
+            <input type="text" id="userFormGrade" placeholder="如：小学三年级" value="3年级" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">账号有效截止时间 (到期后自动禁用)</label>
+          <div class="flex gap-2 items-center">
+            <input type="datetime-local" id="userFormExpireAt" class="flex-1 px-3 py-2 border rounded-xl font-mono">
+            <button type="button" onclick="setQuickExpire(30)" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-[11px]">1个月</button>
+            <button type="button" onclick="setQuickExpire(180)" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-[11px]">半年</button>
+            <button type="button" onclick="setQuickExpire(365)" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-[11px]">1年</button>
+            <button type="button" onclick="setQuickExpire(3650)" class="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-[11px]">永久</button>
+          </div>
+        </div>
+
+        <!-- 目录权限分配树多选 -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="font-bold text-slate-700">授权访问目录 (未勾选的目录学生端不可见)</label>
+            <div class="space-x-2 text-[11px]">
+              <button type="button" onclick="toggleAllCategoryCheck(true)" class="text-brand-600 font-semibold hover:underline">全选</button>
+              <button type="button" onclick="toggleAllCategoryCheck(false)" class="text-slate-500 hover:underline">全不选</button>
+            </div>
+          </div>
+          <div id="userCategoryCheckboxes" class="max-h-40 overflow-y-auto p-3 border rounded-xl bg-slate-50 space-y-2">
+            <!-- 动态生成目录勾选列表 -->
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button onclick="closeModal('userModal')" class="px-4 py-2 border rounded-xl hover:bg-slate-50 text-xs">取消</button>
+        <button onclick="saveUser()" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow">
+          保存用户与权限
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 模态框 5：音视频播放 & PDF 预览播放器 ==================== -->
+  <div id="playerModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-3xl w-full p-5 shadow-2xl space-y-3">
+      <div class="flex items-center justify-between border-b pb-2">
+        <h3 class="font-bold text-slate-900 text-sm flex items-center gap-2" id="playerModalTitle">
+          <i data-lucide="play-circle" class="w-4 h-4 text-brand-600"></i>
+          <span>资源在线播放预览</span>
+        </h3>
+        <button onclick="closePlayerModal()" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+
+      <!-- 媒体内容区 -->
+      <div id="playerMediaContainer" class="rounded-xl overflow-hidden bg-black flex items-center justify-center min-h-[360px]">
+        <!-- 动态插入 video/audio/iframe -->
+      </div>
+
+      <!-- 播放加速与模式切换控制条 -->
+      <div class="flex items-center justify-between text-xs pt-1">
+        <div class="flex items-center gap-2 text-slate-600">
+          <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold flex items-center gap-1">
+            <i data-lucide="zap" class="w-3 h-3"></i>
+            <span>非会员加速直链代理中</span>
+          </span>
+          <span id="playerSpeedRateText" class="text-slate-500 font-mono">1.0x</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="changePlaybackRate(0.8)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded">0.8x</button>
+          <button onclick="changePlaybackRate(1.0)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded font-bold text-brand-600">1.0x</button>
+          <button onclick="changePlaybackRate(1.25)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded">1.25x</button>
+          <button onclick="changePlaybackRate(1.5)" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded">1.5x</button>
+          <button onclick="toggleAudioOnlyMode()" id="btnAudioExtractMode" class="ml-2 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded font-semibold border border-indigo-200 flex items-center gap-1">
+            <i data-lucide="headphones" class="w-3.5 h-3.5"></i>
+            <span>测试息屏纯音频流</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 模态框 6：手动录入新资源 ==================== -->
+  <div id="resourceModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-2">
+        <h3 class="font-bold text-slate-900 text-sm" id="resourceModalTitle">添加学习资源</h3>
+        <button onclick="closeModal('resourceModal')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+
+      <input type="hidden" id="resFormId">
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">资源标题</label>
+          <input type="text" id="resFormTitle" placeholder="如：新概念青少版 1A 第一课视频" class="w-full px-3 py-2 border rounded-xl">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">所属目录</label>
+            <select id="resFormCategoryId" class="w-full px-3 py-2 border rounded-xl bg-white">
+              <!-- 动态填充 -->
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">资源类型</label>
+            <select id="resFormType" class="w-full px-3 py-2 border rounded-xl bg-white font-medium">
+              <option value="video">视频动画 (Video)</option>
+              <option value="audio">纯音频磨耳朵 (Audio)</option>
+              <option value="pdf">教材绘本 (PDF)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">主媒体播放地址 (支持网盘直链/MP4/MP3/PDF)</label>
+          <input type="text" id="resFormUrl" placeholder="如：https://.../video.mp4" class="w-full px-3 py-2 border rounded-xl font-mono">
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">息屏纯音频备用流 (可选，供锁屏省流磨耳朵)</label>
+          <input type="text" id="resFormAudioUrl" placeholder="如：https://.../audio.mp3 (留空则从视频抽取)" class="w-full px-3 py-2 border rounded-xl font-mono">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">封面图片 URL</label>
+            <input type="text" id="resFormCoverUrl" placeholder="图片地址" value="https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=500&auto=format&fit=crop" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">标签 (逗号分隔)</label>
+            <input type="text" id="resFormTags" placeholder="英语, 自然拼读, 视频" class="w-full px-3 py-2 border rounded-xl">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">学习简介与说明</label>
+          <textarea id="resFormDesc" rows="2" class="w-full px-3 py-2 border rounded-xl"></textarea>
+        </div>
+
+        <div class="flex items-center gap-2 pt-1">
+          <label class="flex items-center gap-2 cursor-pointer font-bold text-slate-700">
+            <input type="checkbox" id="resFormSpeedup" checked class="rounded text-brand-600 focus:ring-brand-500">
+            <span>开启非会员并发分片直链加速</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button onclick="closeModal('resourceModal')" class="px-4 py-2 border rounded-xl hover:bg-slate-50 text-xs">取消</button>
+        <button onclick="saveResource()" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow">
+          保存资源
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 引入后台管理交互 JavaScript -->
+  <script src="/admin/admin.js"></script>
+</body>
+</html>

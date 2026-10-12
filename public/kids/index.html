@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>智学小鹿 - 儿童智能伴学系统</title>
+  
+  <!-- PWA 元数据 -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#4F46E5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="智学小鹿">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#EEF2FF',
+              100: '#E0E7FF',
+              500: '#6366F1',
+              600: '#4F46E5',
+              700: '#4338CA',
+            },
+            kidPink: '#F472B6',
+            kidYellow: '#FBBF24',
+            kidGreen: '#34D399',
+            kidBlue: '#60A5FA'
+          },
+          fontFamily: {
+            kid: ['PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* 优化移动端触控体验与护眼背景 */
+    body {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      background: linear-gradient(180deg, #F0F4FF 0%, #FAF5FF 50%, #F0FDF4 100%);
+    }
+    .safe-top { padding-top: env(safe-area-inset-top); }
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    .kid-card-bounce:active { transform: scale(0.96); transition: transform 0.15s ease; }
+    .bubble-float {
+      animation: floatSlow 4s ease-in-out infinite alternate;
+    }
+    @keyframes floatSlow {
+      0% { transform: translateY(0px); }
+      100% { transform: translateY(-8px); }
+    }
+  </style>
+</head>
+<body class="font-kid text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- 顶部状态栏与用户切换栏 -->
+  <header class="bg-white/90 backdrop-blur-md sticky top-0 z-40 border-b border-indigo-100 safe-top shadow-xs">
+    <div class="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-500 to-pink-400 flex items-center justify-center text-2xl shadow-md shadow-indigo-300/40">
+          🦌
+        </div>
+        <div>
+          <h1 class="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1">
+            智学小鹿
+            <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-700 font-bold">VIP伴学</span>
+          </h1>
+          <p class="text-[11px] text-slate-500 flex items-center gap-1" id="currentKidProfile">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="kidGreetingText">小明小朋友 (三年级)</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- 右侧功能按键：AI导师召唤 & 切换账号 -->
+      <div class="flex items-center gap-2">
+        <button onclick="openAiChatModal()" class="flex items-center gap-1 px-3 py-1.5 rounded-full bg-gradient-to-r from-indigo-600 to-brand-500 text-white text-xs font-bold shadow-md shadow-brand-500/25 kid-card-bounce">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          <span>问问AI</span>
+        </button>
+
+        <a href="/admin" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100" title="进入管理端">
+          <i data-lucide="settings" class="w-4 h-4"></i>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- 移动端主体区域 (限定宽度，保持手机沉浸式UI) -->
+  <main class="flex-1 max-w-md w-full mx-auto px-4 py-4 space-y-5 pb-24">
+
+    <!-- 1. 顶部醒目大搜索框 -->
+    <div class="relative">
+      <div class="bg-white p-2 rounded-3xl shadow-lg shadow-indigo-100 border-2 border-indigo-200/80 flex items-center gap-2 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-200">
+        <div class="pl-2 text-brand-500">
+          <i data-lucide="search" class="w-5 h-5"></i>
+        </div>
+        <input type="text" id="kidsSearchInput" placeholder="想学什么？搜新概念、自然拼读、古诗..." 
+               class="flex-1 bg-transparent py-2 px-1 text-sm text-slate-800 placeholder-slate-400 focus:outline-none font-medium">
+        <button onclick="doKidsSearch()" class="px-4 py-2 bg-gradient-to-r from-brand-600 to-indigo-500 hover:from-brand-700 hover:to-indigo-600 text-white text-xs font-bold rounded-2xl shadow-md kid-card-bounce">
+          搜索
+        </button>
+      </div>
+
+      <!-- 快速标签 -->
+      <div class="flex items-center gap-1.5 mt-2.5 overflow-x-auto no-scrollbar text-xs">
+        <span class="text-slate-400 text-[11px] font-bold flex-shrink-0">热搜:</span>
+        <button onclick="quickKidsSearch('新概念英语')" class="px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 font-semibold border border-indigo-100 flex-shrink-0 text-[11px]">📘 新概念青少版</button>
+        <button onclick="quickKidsSearch('自然拼读')" class="px-2.5 py-1 rounded-full bg-pink-50 text-pink-700 font-semibold border border-pink-100 flex-shrink-0 text-[11px]">🔤 自然拼读</button>
+        <button onclick="quickKidsSearch('成语故事')" class="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 font-semibold border border-amber-100 flex-shrink-0 text-[11px]">🎬 成语故事</button>
+        <button onclick="quickKidsSearch('睡前故事')" class="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100 flex-shrink-0 text-[11px]">🌙 息屏磨耳朵</button>
+      </div>
+    </div>
+
+    <!-- 2. AI 伴学导师智能引导卡片 -->
+    <div onclick="openAiChatModal()" class="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-3xl p-4 text-white shadow-xl shadow-indigo-300/30 flex items-center justify-between cursor-pointer kid-card-bounce relative overflow-hidden">
+      <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
+      <div class="space-y-1 z-10">
+        <div class="flex items-center gap-1.5 text-xs font-bold text-amber-200">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5 animate-spin"></i>
+          <span>AI 伴学助手「智学小鹿」</span>
+        </div>
+        <h3 class="text-sm font-extrabold text-white">针对几年级孩子学习什么？</h3>
+        <p class="text-[11px] text-white/80">点击问AI，根据年级量身定制学习方案 ➔</p>
+      </div>
+      <div class="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-3xl bubble-float">
+        🦌
+      </div>
+    </div>
+
+    <!-- 3. 当前浏览层级面包屑 (支持从二级返回一级) -->
+    <div id="breadcrumbBar" class="hidden flex items-center justify-between bg-white/80 backdrop-blur-sm px-3.5 py-2 rounded-2xl border border-indigo-100 text-xs">
+      <div class="flex items-center gap-1.5 text-slate-600 font-medium truncate">
+        <button onclick="goBackToHome()" class="text-brand-600 font-bold hover:underline flex items-center gap-0.5">
+          <i data-lucide="home" class="w-3.5 h-3.5"></i>
+          <span>首页大模块</span>
+        </button>
+        <span class="text-slate-300">/</span>
+        <span id="breadcrumbCurrentText" class="text-slate-900 font-bold truncate">乐学英语</span>
+      </div>
+      <button onclick="goBackToHome()" class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-lg text-[11px] font-bold">
+        返回
+      </button>
+    </div>
+
+    <!-- 4. 核心模块与大图标网格 (一级大分类) -->
+    <div id="topModulesSection" class="space-y-2.5">
+      <div class="flex items-center justify-between px-1">
+        <h3 class="text-sm font-extrabold text-slate-800 flex items-center gap-1.5">
+          <span>🌟 探索学习大世界</span>
+        </h3>
+        <span class="text-[11px] text-slate-400">点击进入专属乐园</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3" id="primaryModulesGrid">
+        <!-- 动态渲染一级分类卡片：乐学英语、国学经典、开心故事、科普百科 -->
+      </div>
+    </div>
+
+    <!-- 5. 子目录与分类展示区 (二级目录，进入一级后展示) -->
+    <div id="subCategoriesSection" class="hidden space-y-2.5">
+      <div class="flex items-center justify-between px-1">
+        <h3 class="text-sm font-extrabold text-slate-800" id="subCatTitle">📚 精选子目录</h3>
+        <span class="text-[11px] text-brand-600 font-bold" id="subCatCountTip">共 2 个专区</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3" id="subCategoriesGrid">
+        <!-- 动态渲染二级分类 -->
+      </div>
+    </div>
+
+    <!-- 6. 学习资源列表 (视频、音频、PDF) -->
+    <div class="space-y-3">
+      <div class="flex items-center justify-between px-1">
+        <h3 class="text-sm font-extrabold text-slate-800 flex items-center gap-1.5" id="resourceListTitle">
+          <span>🎯 今日精选推荐课程</span>
+        </h3>
+        <div class="flex items-center gap-1 text-[11px]">
+          <button onclick="filterKidsType('')" class="res-type-btn active px-2.5 py-0.5 rounded-full font-bold bg-brand-600 text-white">全部</button>
+          <button onclick="filterKidsType('video')" class="res-type-btn px-2.5 py-0.5 rounded-full font-bold bg-white text-slate-600 border">🎬视频</button>
+          <button onclick="filterKidsType('audio')" class="res-type-btn px-2.5 py-0.5 rounded-full font-bold bg-white text-slate-600 border">🎧听书</button>
+          <button onclick="filterKidsType('pdf')" class="res-type-btn px-2.5 py-0.5 rounded-full font-bold bg-white text-slate-600 border">📖绘本</button>
+        </div>
+      </div>
+
+      <div class="space-y-3" id="kidsResourcesContainer">
+        <!-- 动态渲染资源卡片 -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- 底部固定浮动：全能播放器控制条 (支持息屏后台播放) -->
+  <div id="bottomMiniPlayer" class="fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-xl border-t border-indigo-100 shadow-2xl z-40 safe-bottom transform translate-y-full transition-transform duration-300">
+    <div class="max-w-md mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
+      <!-- 封面与标题 -->
+      <div onclick="expandFullPlayer()" class="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer">
+        <div class="relative w-11 h-11 rounded-xl overflow-hidden shadow-md flex-shrink-0">
+          <img id="miniPlayerCover" src="" class="w-full h-full object-cover">
+          <span id="miniPlayerTypeIcon" class="absolute bottom-0 right-0 p-0.5 rounded-tl bg-black/60 text-[9px] text-white">🎬</span>
+        </div>
+        <div class="truncate">
+          <h4 id="miniPlayerTitle" class="text-xs font-bold text-slate-900 truncate">正在播放课件</h4>
+          <p class="text-[10px] text-slate-500 flex items-center gap-1">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span id="miniPlayerStatusText">非会员高速加速中 · 支持息屏后台播放</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- 控制按键 -->
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <!-- 息屏模式快速开关 -->
+        <button onclick="toggleScreenOffAudioMode()" id="btnQuickScreenOff" class="p-2 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-bold flex items-center gap-1 border border-indigo-200" title="切换息屏听书模式">
+          <i data-lucide="headphones" class="w-3.5 h-3.5"></i>
+          <span class="hidden sm:inline">息屏听</span>
+        </button>
+
+        <!-- 播放/暂停 -->
+        <button onclick="togglePlayPause()" id="miniPlayBtn" class="w-9 h-9 rounded-full bg-brand-600 text-white flex items-center justify-center shadow-md shadow-brand-500/30">
+          <i data-lucide="pause" class="w-4 h-4"></i>
+        </button>
+
+        <!-- 全屏放大查看 -->
+        <button onclick="expandFullPlayer()" class="p-1.5 text-slate-400 hover:text-slate-600">
+          <i data-lucide="maximize-2" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- 底部微型播放进度条 -->
+    <div class="w-full bg-slate-100 h-1">
+      <div id="miniProgressFill" class="bg-gradient-to-r from-brand-600 to-pink-500 h-full w-0 transition-all duration-300"></div>
+    </div>
+  </div>
+
+  <!-- 全屏沉浸式播放器模态框 (视频/音频/息屏模式) -->
+  <div id="fullPlayerModal" class="fixed inset-0 bg-slate-950/95 backdrop-blur-xl z-50 flex flex-col hidden safe-top safe-bottom">
+    <div class="p-4 flex items-center justify-between text-white border-b border-white/10">
+      <button onclick="closeFullPlayer()" class="p-2 rounded-full bg-white/10 text-white">
+        <i data-lucide="chevron-down" class="w-5 h-5"></i>
+      </button>
+      <div class="text-center truncate max-w-[220px]">
+        <h4 id="fullPlayerTitle" class="text-xs font-bold truncate">正在播放</h4>
+        <span class="text-[10px] text-white/50" id="fullPlayerSubtitle">非会员极速流媒体已就绪</span>
+      </div>
+      <button onclick="toggleScreenOffAudioMode()" class="px-2.5 py-1 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center gap-1">
+        <i data-lucide="moon" class="w-3 h-3"></i>
+        <span>息屏听书</span>
+      </button>
+    </div>
+
+    <!-- 核心多媒体视窗 -->
+    <div class="flex-1 flex flex-col items-center justify-center p-4 relative" id="fullPlayerMediaContainer">
+      <!-- 动态插入 video/audio/pdf -->
+    </div>
+
+    <!-- 控制面板 -->
+    <div class="p-5 space-y-4 max-w-md w-full mx-auto text-white">
+      <!-- 时间进度条 -->
+      <div class="space-y-1">
+        <input type="range" id="fullPlayerSeekBar" min="0" max="100" value="0" 
+               class="w-full accent-pink-500 bg-white/20 h-1.5 rounded-lg appearance-none cursor-pointer">
+        <div class="flex justify-between text-[11px] text-white/60 font-mono">
+          <span id="fullPlayerCurrentTime">00:00</span>
+          <span id="fullPlayerDuration">00:00</span>
+        </div>
+      </div>
+
+      <!-- 核心控制按钮组 -->
+      <div class="flex items-center justify-between px-4">
+        <!-- 倍速切换 -->
+        <button onclick="cycleRate()" id="btnCycleRate" class="px-2.5 py-1 rounded-lg bg-white/10 text-white text-xs font-mono font-bold">
+          1.0x
+        </button>
+
+        <!-- 快退 10 秒 -->
+        <button onclick="seekOffset(-10)" class="p-2 text-white/80 hover:text-white">
+          <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+        </button>
+
+        <!-- 播放/暂停大按钮 -->
+        <button onclick="togglePlayPause()" id="fullPlayBigBtn" class="w-16 h-16 rounded-full bg-gradient-to-tr from-brand-600 to-pink-500 text-white flex items-center justify-center text-2xl shadow-xl shadow-pink-500/40 kid-card-bounce">
+          <i data-lucide="pause" class="w-8 h-8"></i>
+        </button>
+
+        <!-- 快进 10 秒 -->
+        <button onclick="seekOffset(10)" class="p-2 text-white/80 hover:text-white">
+          <i data-lucide="rotate-cw" class="w-5 h-5"></i>
+        </button>
+
+        <!-- 息屏好声音伴学提示 -->
+        <button onclick="showScreenOffTip()" class="p-2 text-amber-300">
+          <i data-lucide="info" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- 息屏模式特性提示条 -->
+      <div class="p-2.5 rounded-xl bg-white/5 border border-white/10 text-center text-[11px] text-white/70">
+        💡 锁屏或切换后台仍可继续收听（已接入 MediaSession 后台音频通道）
+      </div>
+    </div>
+  </div>
+
+  <!-- AI 伴学助手智能体对话模态框 -->
+  <div id="aiChatModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex flex-col justify-end hidden safe-bottom">
+    <div class="bg-white rounded-t-3xl max-w-md w-full mx-auto max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-slide-up">
+      <!-- 头部 -->
+      <div class="p-4 bg-gradient-to-r from-indigo-600 to-brand-500 text-white flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <div class="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-2xl">
+            🦌
+          </div>
+          <div>
+            <h3 class="font-extrabold text-sm flex items-center gap-1.5">
+              智学小鹿 · 智能伴学导师
+              <span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-400 text-amber-950 font-bold">AI</span>
+            </h3>
+            <p class="text-[11px] text-white/80">问我针对几年级学什么，为您推荐最适合的课程</p>
+          </div>
+        </div>
+        <button onclick="closeAiChatModal()" class="p-1 rounded-full bg-white/10 hover:bg-white/20 text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- 快捷问题提示 -->
+      <div class="bg-slate-50 p-2.5 border-b border-slate-100 flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
+        <span class="text-slate-400 text-[11px] font-bold flex-shrink-0">猜你想问:</span>
+        <button onclick="sendQuickAiQuery('针对三年级孩子，在系统里应该学习什么课程？')" class="px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-700 hover:border-brand-500 text-[11px] font-medium whitespace-nowrap">三年级学什么？</button>
+        <button onclick="sendQuickAiQuery('学前班/一年级的小朋友，怎么启蒙自然拼读和英语？')" class="px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-700 hover:border-brand-500 text-[11px] font-medium whitespace-nowrap">幼升小英语启蒙</button>
+        <button onclick="sendQuickAiQuery('晚上睡觉前适合听什么故事磨耳朵？')" class="px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-700 hover:border-brand-500 text-[11px] font-medium whitespace-nowrap">睡前听书推荐</button>
+      </div>
+
+      <!-- 消息对话滚动区 -->
+      <div id="aiChatMessages" class="flex-1 overflow-y-auto p-4 space-y-3.5 text-xs">
+        <!-- 初始机器人消息 -->
+        <div class="flex items-start gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center text-lg flex-shrink-0 shadow-xs">
+            🦌
+          </div>
+          <div class="bg-indigo-50/80 border border-indigo-100 p-3 rounded-2xl rounded-tl-none max-w-[85%] text-slate-800 space-y-2 leading-relaxed">
+            <p><strong>你好呀，小朋友和家长！</strong> 我是你的专属伴学导师「智学小鹿」。</p>
+            <p>针对不同年级阶段（学前、1~2年级低幼启蒙、3~6年级进阶），我会结合咱们系统内的【乐学英语】、【新概念青少版】、【国学经典】、【开心故事】等真实资源，给你定制最棒的学习建议哦！快来问我吧~ ✨</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部输入框 -->
+      <div class="p-3 bg-white border-t border-slate-200 flex items-center gap-2">
+        <input type="text" id="aiUserInput" placeholder="输入孩子年级或学科问题..." 
+               onkeyup="if(event.key==='Enter') sendAiMessage()"
+               class="flex-1 bg-slate-100 px-3.5 py-2.5 rounded-2xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500">
+        <button onclick="sendAiMessage()" id="btnSendAi" class="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-2xl shadow-md kid-card-bounce">
+          发送
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF / 绘本画册阅读器模态框 -->
+  <div id="pdfViewerModal" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex flex-col hidden safe-top safe-bottom">
+    <div class="p-3 bg-slate-900 text-white flex items-center justify-between border-b border-white/10">
+      <div class="flex items-center gap-2 truncate">
+        <span class="text-xl">📖</span>
+        <h4 id="pdfViewerTitle" class="text-xs font-bold truncate">教材绘本阅读</h4>
+      </div>
+      <button onclick="closePdfViewer()" class="p-1.5 rounded-full bg-white/10 text-white hover:bg-white/20">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+    <div class="flex-1 bg-slate-800 relative">
+      <iframe id="pdfViewerFrame" src="" class="w-full h-full border-0 bg-white"></iframe>
+    </div>
+  </div>
+
+  <!-- 引入儿童端核心 JavaScript 脚本 -->
+  <script src="/kids/kids.js"></script>
+
+  <!-- 注册 PWA Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then(reg => {
+          console.log('Kids App PWA ServiceWorker registered:', reg.scope);
+        }).catch(err => {
+          console.log('ServiceWorker registration failed:', err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>

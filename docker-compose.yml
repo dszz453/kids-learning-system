@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  kids-learning-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kids-learning-system:latest
+    container_name: kids-learning-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    volumes:
+      # 持久化存储 SQLite/JSON 数据库文件与系统配置
+      - ./data:/app/data
+      # 挂载宿主机本地硬盘上的媒体资源库（只读或读写挂载皆可，例如 D:/儿童学习资料）
+      # 用户可根据需要将宿主机上的视频/音频/PDF文件夹映射到容器内：
+      # - /host/path/to/media:/app/data/local_media:ro
+      - ./data/local_media:/app/data/local_media
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
