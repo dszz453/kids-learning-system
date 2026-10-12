@@ -134,6 +134,59 @@
 
       <!-- ==================== 模块 1：网盘资源搜索与存活检测与转存 (Pansou + PanCheck) ==================== -->
       <section id="view-panSearch" class="tab-view block space-y-6">
+        <!-- Pansou 独立服务端点配置卡片 (醒目配置入口) -->
+        <div class="bg-gradient-to-r from-blue-50/80 via-indigo-50/80 to-purple-50/80 p-5 rounded-2xl border border-indigo-100/80 shadow-sm space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <span class="p-2 bg-brand-600 text-white rounded-xl shadow-sm shadow-brand-500/30">
+                <i data-lucide="server" class="w-4 h-4"></i>
+              </span>
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <span>Pansou 外部服务实例配置</span>
+                  <span id="pansouStatusBadge" class="text-[11px] px-2 py-0.5 rounded-full font-bold bg-slate-200 text-slate-700">加载中...</span>
+                </h3>
+                <p class="text-xs text-slate-500">配置独立的 Pansou 服务地址 (如: http://192.168.31.180:8080 或 http://localhost:8080)，实现全网多源网盘抓取；未开启或异常时自动降级至内置聚合教育索引库</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer bg-white/80 px-3 py-1.5 rounded-xl border border-indigo-200">
+                <input type="checkbox" id="pansouEnabledCheckbox" class="rounded text-brand-600 focus:ring-brand-500 w-4 h-4">
+                <span>启用外部 Pansou 检索</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+            <div class="md:col-span-6 relative">
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">Pansou 运行服务地址 (URL)</label>
+              <div class="relative">
+                <input type="text" id="pansouApiUrlInput" placeholder="http://192.168.31.180:8080 或 http://localhost:8080" 
+                       class="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono bg-white">
+                <i data-lucide="link" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+              </div>
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">请求超时时间 (ms)</label>
+              <input type="number" id="pansouTimeoutInput" value="8000" step="500"
+                     class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono bg-white">
+            </div>
+
+            <div class="md:col-span-4 flex items-end gap-2 pt-5">
+              <button onclick="testPansouConnection()" id="btnTestPansou" class="flex-1 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5">
+                <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+                <span>测试连通性</span>
+              </button>
+              <button onclick="savePansouConfig()" id="btnSavePansou" class="flex-1 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+                <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                <span>保存配置</span>
+              </button>
+            </div>
+          </div>
+          <div id="pansouTestResultBox" class="hidden text-xs p-2.5 rounded-xl border"></div>
+        </div>
+
         <!-- 顶部搜索条 -->
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -216,11 +269,40 @@
                 <i data-lucide="qr-code" class="w-5 h-5 text-brand-600"></i>
                 四大网盘扫码登录与 Cookie 配置中心
               </h2>
-              <p class="text-xs text-slate-500">配置个人网盘账号后，系统即可调用各网盘官方 API 自动化实现一键极速转存</p>
+              <p class="text-xs text-slate-500">支持夸克网盘、百度网盘、UC网盘、天翼云盘一键生成登录二维码手机扫码授权，或直接粘贴 Cookie 保存，实现一键极速转存</p>
             </div>
-            <button onclick="loadPanAccounts()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition flex items-center gap-1">
-              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-              <span>刷新账号状态</span>
+            <div class="flex items-center gap-2">
+              <button onclick="loadPanAccounts()" class="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center gap-1.5">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                <span>刷新账号状态</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 醒目的快捷操作条：直通四大网盘扫码与Cookie录入 -->
+        <div class="bg-gradient-to-r from-amber-50 via-orange-50 to-indigo-50 p-4 rounded-2xl border border-amber-200/80 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <span class="p-2.5 bg-amber-500 text-white rounded-xl shadow-sm">
+              <i data-lucide="key" class="w-5 h-5"></i>
+            </span>
+            <div>
+              <h4 class="text-xs font-bold text-slate-900">网盘身份认证凭证快速录入 / 扫码工作台</h4>
+              <p class="text-[11px] text-slate-500">点击下方各网盘按钮直接调出扫码窗口或弹出 Cookie 输入框，保存后永久有效自动执行转存</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button onclick="startPanQrLogin('quark', '夸克网盘')" class="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1">
+              <span>⚡ 夸克扫码</span>
+            </button>
+            <button onclick="startPanQrLogin('baidu', '百度网盘')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1">
+              <span>☁️ 百度扫码</span>
+            </button>
+            <button onclick="startPanQrLogin('uc', 'UC网盘')" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1">
+              <span>🦊 UC扫码</span>
+            </button>
+            <button onclick="startPanQrLogin('cloud189', '天翼云盘')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1">
+              <span>🚀 天翼扫码</span>
             </button>
           </div>
         </div>
@@ -233,9 +315,9 @@
         <!-- Cookie 原理说明 -->
         <div class="bg-slate-100/70 p-4 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-2 leading-relaxed">
           <p class="font-bold text-slate-800">💡 扫码与转存机制说明：</p>
-          <p>1. 点击对应网盘的「扫码授权」按钮，手机打开对应网盘 App 扫描二维码并点击确认，系统将安全捕获身份认证凭据 (Cookie/Token) 并加密存储于本地。</p>
-          <p>2. 支持手动填写/粘贴网盘 Cookies，也可直接一键使用内置演示授权模式进行全流程转存体验。</p>
-          <p>3. 转存成功后，资源文件将进入您的网盘私有目录，在前端播放时自动通过本系统的「Range并发直链代理引擎」实现非会员高速流畅播放！</p>
+          <p>1. <strong>扫码登录</strong>：点击对应网盘的「立即扫码授权」按钮，手机打开对应网盘 App 扫描二维码并点击确认，系统将安全捕获身份认证凭据 (Cookie/Token) 并加密存储于系统本地。</p>
+          <p>2. <strong>直接存 Cookie</strong>：点击「手动填Cookie」，可将从电脑浏览器开发者工具 (F12) 复制的 Cookie 完整粘贴保存；也可一键填入演示凭证体验转存流程。</p>
+          <p>3. <strong>非会员加速播放</strong>：转存成功后，资源文件将进入您的网盘私有目录，在前端播放时自动通过本系统的「Range并发直链代理引擎」实现非会员高速流畅播放与息屏磨耳朵！</p>
         </div>
       </section>
 
@@ -858,6 +940,45 @@
         <button onclick="closeModal('resourceModal')" class="px-4 py-2 border rounded-xl hover:bg-slate-50 text-xs">取消</button>
         <button onclick="saveResource()" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow">
           保存资源
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 模态框 5：网盘手动录入/更新 Cookie 弹窗 ==================== -->
+  <div id="cookieModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b pb-2">
+        <h3 class="font-bold text-slate-900 text-sm flex items-center gap-2" id="cookieModalTitle">
+          <i data-lucide="key" class="w-4 h-4 text-brand-600"></i>
+          <span>手动配置网盘 Cookie 与授权凭证</span>
+        </h3>
+        <button onclick="closeModal('cookieModal')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+
+      <input type="hidden" id="cookieFormPanType">
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">账号昵称 / 备注</label>
+          <input type="text" id="cookieFormUsername" placeholder="如：我的夸克SVIP账号 / 百度家庭账号" class="w-full px-3 py-2 border rounded-xl font-medium">
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">Cookie 原始字符串 (或 Token)</label>
+          <textarea id="cookieFormValue" rows="4" placeholder="请从浏览器开发者工具 (F12) 或抓包工具中复制 Cookie 字符串完整粘贴到此处..." 
+                    class="w-full px-3 py-2 border rounded-xl font-mono text-xs focus:ring-2 focus:ring-brand-500 focus:outline-none"></textarea>
+          <div class="flex items-center justify-between mt-1 text-[11px] text-slate-400">
+            <span>支持包含登录态的完整 Cookie，用于调用转存与直链解析</span>
+            <button type="button" onclick="fillMockCookie()" class="text-brand-600 hover:underline">填入演示测试凭证</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t">
+        <button onclick="closeModal('cookieModal')" class="px-4 py-2 border rounded-xl hover:bg-slate-50 text-xs">取消</button>
+        <button onclick="saveManualCookie()" id="btnSaveCookie" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow flex items-center gap-1.5">
+          <i data-lucide="save" class="w-4 h-4"></i>
+          <span>保存 Cookie 到系统</span>
         </button>
       </div>
     </div>

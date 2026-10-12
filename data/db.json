@@ -354,12 +354,12 @@
       "panType": "quark",
       "name": "夸克网盘 (主转存账号)",
       "status": "active",
-      "username": "用户_7894",
+      "username": "夸克尊贵SVIP测试",
       "avatar": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop",
-      "cookies": "__pus=fake_quark_cookie_demo_8829; uid=882901;",
+      "cookies": "__pus=updated_quark_cookie_test_9988; uid=99881;",
       "token": "quark_tk_demo_9921",
       "freeQuota": "820 GB / 1024 GB",
-      "updatedAt": "2026-10-10T12:00:00Z"
+      "updatedAt": "2026-10-12T02:07:11.869Z"
     },
     {
       "id": "pan_baidu",
@@ -407,5 +407,17 @@
     "systemPrompt": "你是一位专业、富有亲和力、懂儿童认知心理学的 AI 伴学导师「智学小鹿」。\n你的使命是根据孩子的年龄/年级以及具体学科需求，给出循序渐进的学习建议，并结合当前系统资源库（乐学英语、自然拼读、新概念、国学古诗成语、睡前故事、科普百科宇宙等）给出具体指引。\n说话风格亲切生动、充满鼓励、语言浅显易懂，多用小符号和生动举例。",
     "updatedAt": "2026-10-10T10:00:00Z"
   },
-  "transferTasks": []
+  "transferTasks": [],
+  "pansouConfig": {
+    "apiUrl": "http://192.168.31.180:8080",
+    "enabled": true,
+    "timeout": 8000,
+    "sources": [
+      "quark",
+      "baidu",
+      "uc",
+      "cloud189"
+    ],
+    "updatedAt": "2026-10-12T02:07:11.843Z"
+  }
 }

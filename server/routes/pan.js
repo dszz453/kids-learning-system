@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const panSearchService = require('../services/panSearchService');
 const panCheckService = require('../services/panCheckService');
 const panAccountService = require('../services/panAccountService');
@@ -55,7 +56,7 @@ router.get('/accounts', authMiddleware, (req, res) => {
 });
 
 // 5. 创建扫码登录二维码会话 (夸克/百度/UC/天翼)
-router.post('/qrcode/create', authMiddleware, async (req, res) => {
+const handleQrCreate = async (req, res) => {
   try {
     const { panType } = req.body;
     if (!panType) {
@@ -67,7 +68,9 @@ router.post('/qrcode/create', authMiddleware, async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, message: '生成扫码会话失败: ' + err.message });
   }
-});
+};
+router.post('/qrcode/create', authMiddleware, handleQrCreate);
+router.post('/qrcode/generate', authMiddleware, handleQrCreate); // 兼容别名路由
 
 // 6. 轮询二维码扫码状态
 router.get('/qrcode/status/:sessionId', (req, res) => {
@@ -116,6 +119,70 @@ router.post('/transfer', authMiddleware, async (req, res) => {
 router.get('/transfer/tasks', authMiddleware, (req, res) => {
   const tasks = panTransferService.getTasks();
   res.json({ success: true, tasks });
+});
+
+// 11. 获取 Pansou 搜索端点配置
+router.get('/pansou/config', authMiddleware, (req, res) => {
+  const db = require('../database');
+  const config = db.get('pansouConfig') || {
+    apiUrl: 'http://localhost:8080',
+    enabled: false,
+    timeout: 10000,
+    sources: ['quark', 'baidu', 'uc', 'cloud189']
+  };
+  res.json({ success: true, config });
+});
+
+// 12. 更新 Pansou 搜索端点配置与连通性测试
+router.post('/pansou/config', authMiddleware, async (req, res) => {
+  try {
+    const { apiUrl, enabled, timeout, sources } = req.body;
+    const db = require('../database');
+    const oldConfig = db.get('pansouConfig') || {};
+    const newConfig = {
+      apiUrl: (apiUrl || 'http://localhost:8080').trim().replace(/\/+$/, ''),
+      enabled: Boolean(enabled),
+      timeout: Number(timeout) || 10000,
+      sources: Array.isArray(sources) ? sources : ['quark', 'baidu', 'uc', 'cloud189'],
+      updatedAt: new Date().toISOString()
+    };
+    db.set('pansouConfig', newConfig);
+    res.json({ success: true, config: newConfig, message: 'Pansou 端点配置已成功保存！' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: '保存 Pansou 配置失败: ' + err.message });
+  }
+});
+
+// 13. 测试 Pansou 实例连通性
+router.post('/pansou/test', authMiddleware, async (req, res) => {
+  const { apiUrl } = req.body;
+  if (!apiUrl) {
+    return res.status(400).json({ success: false, message: '请输入待测试的 Pansou 服务地址' });
+  }
+  const cleanUrl = apiUrl.trim().replace(/\/+$/, '');
+  try {
+    const start = Date.now();
+    // 探测 Pansou 的根路径或 /api/search 或 ping 接口
+    const resp = await axios.get(cleanUrl, { timeout: 4000 }).catch(e => {
+      // 即使404也说明服务连通且有响应
+      if (e.response) return e.response;
+      throw e;
+    });
+    const duration = Date.now() - start;
+    res.json({
+      success: true,
+      reachable: true,
+      status: resp.status,
+      durationMs: duration,
+      message: `连接成功 (HTTP ${resp.status})，响应耗时 ${duration}ms`
+    });
+  } catch (err) {
+    res.json({
+      success: false,
+      reachable: false,
+      message: `无法连接到该地址 (${cleanUrl}): ${err.message}`
+    });
+  }
 });
 
 module.exports = router;

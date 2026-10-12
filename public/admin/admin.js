@@ -9,6 +9,7 @@ let qrPollingTimer = null;
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
   initIcons();
+  loadPansouConfig(); // 载入并回显 Pansou 服务地址与状态
   loadCategories();
   loadResources();
   doPanSearch(); // 默认载入精品网盘资源
@@ -42,6 +43,112 @@ function switchTab(tabName) {
   }
 
   initIcons();
+}
+
+// ==================== 0. Pansou 外部服务配置与测试 ====================
+async function loadPansouConfig() {
+  try {
+    const res = await fetch('/api/pan/pansou/config', {
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+    });
+    const data = await res.json();
+    if (data.success && data.config) {
+      const cfg = data.config;
+      const urlInput = document.getElementById('pansouApiUrlInput');
+      const enabledBox = document.getElementById('pansouEnabledCheckbox');
+      const timeoutInput = document.getElementById('pansouTimeoutInput');
+      const badge = document.getElementById('pansouStatusBadge');
+
+      if (urlInput) urlInput.value = cfg.apiUrl || 'http://localhost:8080';
+      if (enabledBox) enabledBox.checked = Boolean(cfg.enabled);
+      if (timeoutInput) timeoutInput.value = cfg.timeout || 8000;
+
+      if (badge) {
+        if (cfg.enabled) {
+          badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800';
+          badge.innerText = '已启用外部抓取';
+        } else {
+          badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-bold bg-slate-200 text-slate-600';
+          badge.innerText = '未启用 (使用内置精选索引)';
+        }
+      }
+    }
+  } catch (err) {
+    console.error('加载 Pansou 配置失败:', err);
+  }
+}
+
+async function savePansouConfig() {
+  const apiUrl = document.getElementById('pansouApiUrlInput').value.trim();
+  const enabled = document.getElementById('pansouEnabledCheckbox').checked;
+  const timeout = Number(document.getElementById('pansouTimeoutInput').value) || 8000;
+  const btn = document.getElementById('btnSavePansou');
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="inline-block animate-spin mr-1">⌛</span><span>保存中...</span>`;
+
+  try {
+    const res = await fetch('/api/pan/pansou/config', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+      },
+      body: JSON.stringify({ apiUrl, enabled, timeout })
+    });
+    const result = await res.json();
+    alert(result.message || 'Pansou 服务端点配置已成功保存！');
+    loadPansouConfig();
+  } catch (err) {
+    alert('保存 Pansou 配置失败: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存配置</span>`;
+    initIcons();
+  }
+}
+
+async function testPansouConnection() {
+  const apiUrl = document.getElementById('pansouApiUrlInput').value.trim();
+  const resBox = document.getElementById('pansouTestResultBox');
+  const btn = document.getElementById('btnTestPansou');
+
+  if (!apiUrl) {
+    alert('请先输入待测试的 Pansou 服务地址');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="inline-block animate-spin mr-1">⌛</span><span>测试中...</span>`;
+  resBox.classList.remove('hidden');
+  resBox.className = 'text-xs p-2.5 rounded-xl border bg-amber-50 text-amber-800 border-amber-200';
+  resBox.innerHTML = `正在向 <strong>${apiUrl}</strong> 发起心跳探针连通测试...`;
+
+  try {
+    const res = await fetch('/api/pan/pansou/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+      },
+      body: JSON.stringify({ apiUrl })
+    });
+    const result = await res.json();
+    if (result.success && result.reachable) {
+      resBox.className = 'text-xs p-2.5 rounded-xl border bg-emerald-50 text-emerald-800 border-emerald-200';
+      resBox.innerHTML = `✓ <strong>连通成功！</strong> ${result.message}。可直接通过此实例进行多网盘全网搜索。`;
+    } else {
+      resBox.className = 'text-xs p-2.5 rounded-xl border bg-rose-50 text-rose-800 border-rose-200';
+      resBox.innerHTML = `✗ <strong>连通失败：</strong> ${result.message}。请检查服务是否已在宿主机或容器内启动。`;
+    }
+  } catch (err) {
+    resBox.className = 'text-xs p-2.5 rounded-xl border bg-rose-50 text-rose-800 border-rose-200';
+    resBox.innerHTML = `✗ <strong>请求异常：</strong> ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="activity" class="w-3.5 h-3.5"></i><span>测试连通性</span>`;
+    initIcons();
+  }
 }
 
 // ==================== 1. 网盘搜索与存活检测 (Pansou + PanCheck) ====================
@@ -378,20 +485,73 @@ async function simulateQrConfirm() {
   }
 }
 
-async function promptManualCookie(panType) {
-  const cookies = prompt('请粘贴您的 ' + panType + ' 网盘 Cookies 文本:');
-  if (cookies && cookies.trim()) {
+function promptManualCookie(panType) {
+  const panNames = {
+    quark: '夸克网盘',
+    baidu: '百度网盘',
+    uc: 'UC网盘',
+    cloud189: '天翼云盘'
+  };
+  const name = panNames[panType] || panType;
+  document.getElementById('cookieModalTitle').innerHTML = `
+    <i data-lucide="key" class="w-4 h-4 text-brand-600"></i>
+    <span>配置 ${name} 账号凭证与 Cookies</span>
+  `;
+  document.getElementById('cookieFormPanType').value = panType;
+  document.getElementById('cookieFormUsername').value = `${name}_用户`;
+  document.getElementById('cookieFormValue').value = '';
+  document.getElementById('cookieModal').classList.remove('hidden');
+  initIcons();
+}
+
+function fillMockCookie() {
+  const panType = document.getElementById('cookieFormPanType').value;
+  const mockTokens = {
+    quark: '__pus=mock_auth_quark_2026_kid_edu; uid=quark_user_8829; _UP_A4A_11_=ok',
+    baidu: 'BDUSS=mock_baidu_bduss_secure_token_991823; STOKEN=mock_stoken_learning; BAIDUID=ABC1234',
+    uc: 'uc_token=mock_uc_drive_kid_token_7721; uid=uc_user_661; session=active',
+    cloud189: 'COOKIE_LOGIN_USER=mock_189_cloud_user_551; sessionKey=cloud189_tk_883'
+  };
+  document.getElementById('cookieFormValue').value = mockTokens[panType] || 'session_token=mock_cookie_demo_value';
+}
+
+async function saveManualCookie() {
+  const panType = document.getElementById('cookieFormPanType').value;
+  const username = document.getElementById('cookieFormUsername').value.trim();
+  const cookies = document.getElementById('cookieFormValue').value.trim();
+  const btn = document.getElementById('btnSaveCookie');
+
+  if (!cookies) {
+    alert('请粘贴网盘的 Cookie 文本或 Token 字符串');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="inline-block animate-spin mr-1">⌛</span><span>保存中...</span>`;
+
+  try {
     const res = await fetch('/api/pan/accounts/cookies', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
       },
-      body: JSON.stringify({ panType, cookies: cookies.trim() })
+      body: JSON.stringify({ panType, cookies, username })
     });
     const data = await res.json();
-    alert(data.message || '配置成功');
-    loadPanAccounts();
+    if (data.success) {
+      alert('✓ ' + (data.message || 'Cookie已成功存入系统，网盘账号已激活！'));
+      closeModal('cookieModal');
+      loadPanAccounts();
+    } else {
+      alert('保存失败：' + data.message);
+    }
+  } catch (err) {
+    alert('保存 Cookie 异常：' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="save" class="w-4 h-4"></i><span>保存 Cookie 到系统</span>`;
+    initIcons();
   }
 }
 

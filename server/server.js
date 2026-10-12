@@ -33,6 +33,7 @@ app.use('/api/stream', streamRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/local', localDiskRouter); // 本地硬盘资源扫描、导入与上传
+app.use('/api/local-disk', localDiskRouter); // 兼容前端/脚本路径别名
 
 // 首页与应用重定向
 app.get('/', (req, res) => {

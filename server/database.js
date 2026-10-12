@@ -338,6 +338,13 @@ const initialData = {
       updatedAt: '2026-09-01T00:00:00Z'
     }
   ],
+  pansouConfig: {
+    apiUrl: 'http://localhost:8080',
+    enabled: false,
+    timeout: 10000,
+    sources: ['quark', 'baidu', 'uc', 'cloud189'],
+    updatedAt: '2026-10-12T00:00:00Z'
+  },
   aiConfig: {
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com/v1',

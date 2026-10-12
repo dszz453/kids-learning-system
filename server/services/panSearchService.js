@@ -153,32 +153,77 @@ class PanSearchService {
 
     let results = [];
 
-    // 1. 如果有网络且配置了在线 pansou 聚合接口，可以异步尝试拉取实时网盘抓取
-    // 这里实现与 pansou 架构对齐的聚合嗅探，同时结合海量内置精选索引
-    if (kw) {
-      const matched = CURATED_KIDS_RESOURCES.filter(item => {
-        const matchKw = !kw || 
-          item.title.toLowerCase().includes(kw) || 
-          item.category.toLowerCase().includes(kw) || 
-          item.grade.toLowerCase().includes(kw) ||
-          item.type.toLowerCase().includes(kw);
+    // 1. 优先尝试从配置的 Pansou 外部服务获取实时搜索数据 (如果启用)
+    const db = require('../database');
+    const pansouConfig = db.get('pansouConfig') || {};
+    let fetchedFromPansou = false;
 
-        const matchPan = panType === 'all' || item.panType === panType;
-        return matchKw && matchPan;
-      });
+    if (pansouConfig.enabled && pansouConfig.apiUrl && kw) {
+      try {
+        const cleanBaseUrl = pansouConfig.apiUrl.replace(/\/+$/, '');
+        // 按照 pansou 标准接口协议发起搜索请求: GET /api/search?keyword=... 或 /search
+        const pansouResp = await axios.get(`${cleanBaseUrl}/api/search`, {
+          params: {
+            keyword: kw,
+            pan: panType === 'all' ? '' : panType,
+            page,
+            pageSize
+          },
+          timeout: pansouConfig.timeout || 6000
+        });
 
-      results = [...matched];
+        if (pansouResp.data && (Array.isArray(pansouResp.data) || Array.isArray(pansouResp.data.data) || Array.isArray(pansouResp.data.items))) {
+          const rawItems = Array.isArray(pansouResp.data) ? pansouResp.data : (pansouResp.data.data || pansouResp.data.items);
+          results = rawItems.map((item, idx) => ({
+            title: item.title || item.name || `【Pansou抓取】${kw} 学习资料`,
+            panType: item.panType || item.pan || item.source || panType === 'all' ? 'quark' : panType,
+            url: item.url || item.link || '',
+            pwd: item.pwd || item.password || '',
+            size: item.size || '未知大小',
+            category: item.category || '外部抓取',
+            grade: '多学段',
+            type: item.type || '网盘资源',
+            updateTime: item.updateTime || new Date().toISOString().split('T')[0],
+            fileCount: item.fileCount || 1,
+            fromPansouApi: true
+          })).filter(i => i.url);
 
-      // 如果搜索特定词汇，动态生成符合 pansou 规则的相关网盘资源结果
-      if (results.length < 5) {
-        const dynamicItems = this.generateDynamicResults(kw, panType);
-        results = results.concat(dynamicItems);
+          if (results.length > 0) {
+            fetchedFromPansou = true;
+          }
+        }
+      } catch (err) {
+        console.warn(`[PanSearchService] 从外部 Pansou (${pansouConfig.apiUrl}) 抓取超时或异常，平滑降级为内置聚合索引: ${err.message}`);
       }
-    } else {
-      // 默认展示全部精选
-      results = CURATED_KIDS_RESOURCES.filter(item => {
-        return panType === 'all' || item.panType === panType;
-      });
+    }
+
+    // 2. 如果未从外部 Pansou 获取到结果或外部接口未启用，使用内置精选少儿教育索引与动态嗅探
+    if (!fetchedFromPansou) {
+      if (kw) {
+        const matched = CURATED_KIDS_RESOURCES.filter(item => {
+          const matchKw = !kw || 
+            item.title.toLowerCase().includes(kw) || 
+            item.category.toLowerCase().includes(kw) || 
+            item.grade.toLowerCase().includes(kw) ||
+            item.type.toLowerCase().includes(kw);
+
+          const matchPan = panType === 'all' || item.panType === panType;
+          return matchKw && matchPan;
+        });
+
+        results = [...matched];
+
+        // 如果搜索特定词汇，动态生成符合 pansou 规则的相关网盘资源结果
+        if (results.length < 5) {
+          const dynamicItems = this.generateDynamicResults(kw, panType);
+          results = results.concat(dynamicItems);
+        }
+      } else {
+        // 默认展示全部精选
+        results = CURATED_KIDS_RESOURCES.filter(item => {
+          return panType === 'all' || item.panType === panType;
+        });
+      }
     }
 
     // 分页切片
