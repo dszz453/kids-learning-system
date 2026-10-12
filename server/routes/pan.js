@@ -5,6 +5,7 @@ const panSearchService = require('../services/panSearchService');
 const panCheckService = require('../services/panCheckService');
 const panAccountService = require('../services/panAccountService');
 const panTransferService = require('../services/panTransferService');
+const panFileService = require('../services/panFileService');
 const { authMiddleware } = require('./auth');
 
 // 1. pansou 网盘资源聚合搜索接口
@@ -288,6 +289,20 @@ router.post('/pancheck/test', authMiddleware, async (req, res) => {
       reachable: false,
       message: `无法连接到该地址 (${cleanUrl}): ${err.message}`
     });
+  }
+});
+
+// 17. 获取网盘真实目录列表（供转存时选择目标目录，替代手动输入）
+router.get('/directory/list', authMiddleware, async (req, res) => {
+  try {
+    const { panType, parentId = '' } = req.query;
+    if (!panType) {
+      return res.status(400).json({ success: false, message: '请指定网盘类型' });
+    }
+    const result = await panFileService.listDirectories(panType, parentId || null);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: '目录获取异常: ' + err.message });
   }
 });
 

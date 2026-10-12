@@ -555,7 +555,14 @@ function openTransferModal(item) {
   document.getElementById('transferShareUrl').value = item.url;
   document.getElementById('transferPwd').value = item.pwd || '';
   document.getElementById('transferTargetPan').value = item.panType || 'quark';
-  document.getElementById('transferTargetDir').value = `/儿童学习资源/${item.category || '精品课件'}/`;
+
+  // 目标目录不再手动输入，改为从网盘实时读取后选择
+  document.getElementById('transferTargetDir').value = '';
+  document.getElementById('transferTargetDirId').value = '';
+  const hint = document.getElementById('transferDirHint');
+  if (hint) {
+    hint.innerHTML = `💡 请点击「浏览」从 <strong>${PAN_LABEL[item.panType] || '网盘'}</strong> 读取目录后选择（无需手动输入）`;
+  }
 
   // 填充分类下拉
   const catSelect = document.getElementById('transferCategorySelect');
@@ -569,6 +576,15 @@ function openTransferModal(item) {
 
 async function executeTransfer() {
   const btn = document.getElementById('btnSubmitTransfer');
+  const targetDirId = document.getElementById('transferTargetDirId').value;
+  const targetDirPath = document.getElementById('transferTargetDir').value;
+
+  if (!targetDirId) {
+    alert('请先点击「浏览」按钮，从网盘读取并选择目标保存目录');
+    openDirPicker();
+    return;
+  }
+
   btn.disabled = true;
   btn.innerHTML = `<span class="animate-spin mr-1">⌛</span><span>正在调用网盘API转存并入库...</span>`;
 
@@ -576,7 +592,8 @@ async function executeTransfer() {
     shareUrl: document.getElementById('transferShareUrl').value,
     pwd: document.getElementById('transferPwd').value,
     targetPanType: document.getElementById('transferTargetPan').value,
-    targetDirectory: document.getElementById('transferTargetDir').value,
+    targetDirId,
+    targetDirPath,
     autoImportToCategory: document.getElementById('transferAutoImport').checked ? document.getElementById('transferCategorySelect').value : null,
     resourceTitle: document.getElementById('transferResTitle').value,
     resourceType: document.querySelector('input[name="transferType"]:checked').value
@@ -608,6 +625,138 @@ async function executeTransfer() {
     btn.innerHTML = `<span>重试</span>`;
     alert('转存请求失败：' + err.message);
   }
+}
+
+// ==================== 2.1 网盘目录浏览器（转存目标目录实时从网盘读取） ====================
+const PAN_LABEL = { quark: '夸克网盘', baidu: '百度网盘', uc: 'UC网盘', cloud189: '天翼云盘' };
+
+let dirPickerState = {
+  panType: 'quark',
+  panName: '',
+  items: [],
+  path: [{ id: '', name: '根目录' }],
+  currentId: ''
+};
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function resetTransferTargetDir() {
+  const pan = document.getElementById('transferTargetPan').value;
+  document.getElementById('transferTargetDir').value = '';
+  document.getElementById('transferTargetDirId').value = '';
+  const hint = document.getElementById('transferDirHint');
+  if (hint) hint.innerHTML = `💡 请点击「浏览」从 <strong>${PAN_LABEL[pan] || pan}</strong> 读取目录后选择`;
+}
+
+function openDirPicker() {
+  const pan = document.getElementById('transferTargetPan').value;
+  dirPickerState = {
+    panType: pan,
+    panName: PAN_LABEL[pan] || pan,
+    items: [],
+    path: [{ id: '', name: '根目录' }],
+    currentId: ''
+  };
+  const nameEl = document.getElementById('dirPickerPanName');
+  if (nameEl) nameEl.innerText = dirPickerState.panName;
+  document.getElementById('dirPickerModal').classList.remove('hidden');
+  renderDirBreadcrumb();
+  loadDirPickerList('');
+  initIcons();
+}
+
+function renderDirBreadcrumb() {
+  const bc = document.getElementById('dirPickerBreadcrumb');
+  const p = dirPickerState.path;
+  bc.innerHTML = p.map((node, idx) => {
+    const isLast = idx === p.length - 1;
+    const label = idx === 0 ? '🏠 根目录' : escapeHtml(node.name);
+    const cls = isLast
+      ? 'text-slate-900 font-bold'
+      : 'text-brand-600 hover:underline cursor-pointer font-medium';
+    const sep = idx < p.length - 1 ? '<span class="text-slate-300">/</span>' : '';
+    return `<span class="${cls}" ${isLast ? '' : `onclick="goToDirPathIndex(${idx})"`}>${label}</span>${sep}`;
+  }).join('');
+
+  const cur = p.map(n => n.name).join(' / ');
+  const curEl = document.getElementById('dirPickerCurrentPath');
+  if (curEl) curEl.innerText = '当前：' + cur;
+}
+
+async function loadDirPickerList(parentId) {
+  const list = document.getElementById('dirPickerList');
+  list.innerHTML = `<div class="p-5 text-center text-xs text-slate-400"><span class="inline-block animate-spin">⏳</span> 正在读取 ${dirPickerState.panName} 目录...</div>`;
+  try {
+    const res = await fetch(
+      `/api/pan/directory/list?panType=${encodeURIComponent(dirPickerState.panType)}&parentId=${encodeURIComponent(parentId || '')}`,
+      { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') } }
+    );
+    const data = await res.json();
+    if (!data.success) {
+      list.innerHTML = `<div class="p-4 text-xs text-rose-600 leading-relaxed">
+        <div class="font-bold mb-1">✗ 目录读取失败</div>
+        <div>${escapeHtml(data.message || '未知错误')}</div>
+        ${data.needAuth ? '<div class="mt-2 text-amber-700">请先到「网盘扫码配置」完成该网盘授权。</div>' : ''}
+      </div>`;
+      dirPickerState.items = [];
+      return;
+    }
+    dirPickerState.items = data.items || [];
+    if (dirPickerState.items.length === 0) {
+      list.innerHTML = `<div class="p-5 text-center text-xs text-slate-400">📂 当前目录下没有子文件夹<br><span class="text-[11px]">可直接点击「选择此目录」</span></div>`;
+      return;
+    }
+    list.innerHTML = dirPickerState.items.map((d, i) => `
+      <div class="flex items-center gap-1 px-2 py-1.5 hover:bg-slate-50">
+        <button onclick="enterDirByIndex(${i})" class="flex items-center gap-2 flex-1 min-w-0 text-left text-xs text-slate-800 py-1">
+          <span class="text-base">📁</span>
+          <span class="truncate font-medium">${escapeHtml(d.name)}</span>
+        </button>
+        <button onclick="pickDirByIndex(${i})" class="text-[10px] px-2 py-0.5 bg-brand-50 text-brand-700 rounded-lg font-bold hover:bg-brand-100 flex-shrink-0">选此</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="p-4 text-xs text-rose-600">加载失败：${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function enterDirByIndex(i) {
+  const d = dirPickerState.items[i];
+  if (!d) return;
+  dirPickerState.path.push({ id: d.id, name: d.name });
+  dirPickerState.currentId = d.id;
+  renderDirBreadcrumb();
+  loadDirPickerList(d.id);
+}
+
+function goToDirPathIndex(idx) {
+  dirPickerState.path = dirPickerState.path.slice(0, idx + 1);
+  dirPickerState.currentId = dirPickerState.path[idx].id;
+  renderDirBreadcrumb();
+  loadDirPickerList(dirPickerState.currentId);
+}
+
+function pickDirByIndex(i) {
+  const d = dirPickerState.items[i];
+  if (!d) return;
+  dirPickerState.path.push({ id: d.id, name: d.name });
+  dirPickerState.currentId = d.id;
+  renderDirBreadcrumb();
+  confirmDirPick();
+}
+
+function confirmDirPick() {
+  const p = dirPickerState.path;
+  const pathStr = '/' + p.map(n => n.name).join('/');
+  document.getElementById('transferTargetDir').value = pathStr;
+  document.getElementById('transferTargetDirId').value = dirPickerState.currentId;
+  const hint = document.getElementById('transferDirHint');
+  if (hint) hint.innerHTML = `✓ 已选择 ${dirPickerState.panName} 目录：<strong>${escapeHtml(pathStr)}</strong>`;
+  closeModal('dirPickerModal');
 }
 
 // ==================== 3. 网盘扫码配置 ====================
