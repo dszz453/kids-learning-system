@@ -6,6 +6,7 @@ const panCheckService = require('../services/panCheckService');
 const panAccountService = require('../services/panAccountService');
 const panTransferService = require('../services/panTransferService');
 const panFileService = require('../services/panFileService');
+const accelerateStreamService = require('../services/accelerateStreamService');
 const { authMiddleware } = require('./auth');
 
 // 1. pansou 网盘资源聚合搜索接口
@@ -303,6 +304,84 @@ router.get('/directory/list', authMiddleware, async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, message: '目录获取异常: ' + err.message });
+  }
+});
+
+// 18. 浏览网盘目录内容（目录 + 文件，用于「导入为学习资源」与资源库查目录内容）
+router.get('/files', authMiddleware, async (req, res) => {
+  try {
+    const { panType, dirId = '', dirPath = '' } = req.query;
+    if (!panType) {
+      return res.status(400).json({ success: false, message: '请指定网盘类型' });
+    }
+    const result = await panFileService.listAll(panType, dirId || null);
+    if (result.success) {
+      result.dirPath = dirPath || '';
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, message: '网盘文件获取异常: ' + err.message });
+  }
+});
+
+// 19. 解析网盘文件播放信息（视频走转码档位，非会员也能流畅播放；其他走直链）
+router.get('/play-info', authMiddleware, async (req, res) => {
+  try {
+    const { panType, fid, prefer = 'auto' } = req.query;
+    if (!panType || !fid) {
+      return res.status(400).json({ success: false, message: '请提供 panType 与 fid' });
+    }
+    const r = await panFileService.getPlayInfo(panType, fid, prefer);
+    res.json({
+      ...r,
+      // 直链/转码地址含临时签名，仅回传预览片段，避免前端日志泄露
+      urlPreview: r.success ? String(r.url).substring(0, 90) + '...' : undefined,
+      streamUrl: r.success ? `/api/pan/stream?panType=${panType}&fid=${fid}` : undefined
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: '播放信息解析异常: ' + err.message });
+  }
+});
+
+// 20. 网盘文件流式播放
+//     视频 → 解析夸克转码播放地址（/file/play），服务端携带 Cookie 回源代理，支持 Range 拖拽
+//     音频/PDF → 走直链代理
+//     供 <video>/<audio>/<iframe> 直接引用，无需请求头，故不做 Bearer 校验
+router.get('/stream', async (req, res) => {
+  const { panType, fid, audioOnly = 'false', resolution = 'auto' } = req.query;
+  if (!panType || !fid) {
+    return res.status(400).send('panType 与 fid 不能为空');
+  }
+
+  // 优先尝试转码播放地址（对视频最稳，且非会员不受单文件下载体积限制）
+  let info = await panFileService.getPlayInfo(panType, fid, resolution);
+  if (!info.success) {
+    const dl = await panFileService.getDownloadUrl(panType, fid);
+    if (dl.success) info = { success: true, url: dl.url, kind: 'direct' };
+  }
+  if (!info.success) {
+    return res.status(502).send(info.message || '网盘播放地址解析失败');
+  }
+
+  await accelerateStreamService.streamMedia(info.url, req, res, {
+    audioOnly: audioOnly === 'true',
+    speedup: true,
+    upstreamHeaders: panFileService.getPlayHeaders(panType),
+    noRedirectFallback: true
+  });
+});
+
+// 21. 网盘授权与播放链路健康诊断（明确区分「能转存但播不了」的原因）
+router.get('/diagnose', authMiddleware, async (req, res) => {
+  try {
+    const { panType, fid = '' } = req.query;
+    if (!panType) {
+      return res.status(400).json({ success: false, message: '请指定网盘类型' });
+    }
+    const r = await panFileService.diagnose(panType, fid || null);
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ success: false, message: '诊断异常: ' + err.message });
   }
 });
 

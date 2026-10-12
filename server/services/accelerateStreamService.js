@@ -22,102 +22,114 @@ class AccelerateStreamService {
    * @param {object} options 选项 { audioOnly: boolean, speedup: boolean }
    */
   async streamMedia(sourceUrl, req, res, options = {}) {
-    const { audioOnly = false, speedup = true } = options;
+    const { audioOnly = false, speedup = true, upstreamHeaders = {}, noRedirectFallback = false } = options;
 
     if (!sourceUrl) {
       return res.status(400).send('Missing sourceUrl parameter');
     }
 
-    try {
-      // 1. 发起 HEAD 或预检请求获取文件大小及 Content-Type
-      const headHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-      };
+    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
-      let headResp;
+    // 网盘 CDN 防盗链：必须原样携带 Cookie / Referer / Origin，否则返回 412 / 403
+    const baseUpstreamHeaders = { 'User-Agent': UA, ...upstreamHeaders };
+
+    try {
+      // 1. 预检：优先 HEAD 获取大小/类型；源站不支持 HEAD 时降级 GET Range: bytes=0-0
+      let headResp = null;
       try {
         headResp = await axios.head(sourceUrl, {
-          headers: headHeaders,
-          timeout: 6000,
-          maxRedirects: 5
+          headers: { ...baseUpstreamHeaders },
+          timeout: 8000,
+          maxRedirects: 5,
+          validateStatus: (s) => s >= 200 && s < 400
         });
       } catch (headErr) {
-        // 如果源服务器不支持 HEAD，降级尝试 GET Range: bytes=0-0
         headResp = await axios.get(sourceUrl, {
-          headers: { ...headHeaders, 'Range': 'bytes=0-0' },
-          timeout: 6000,
+          headers: { ...baseUpstreamHeaders, 'Range': 'bytes=0-0' },
+          timeout: 8000,
           maxRedirects: 5,
           validateStatus: (s) => s >= 200 && s < 400
         });
       }
 
-      const totalSize = parseInt(headResp.headers['content-length'] || headResp.headers['content-range']?.split('/')?.[1] || '0', 10);
+      // 注意：上游可能返回 chunked（无 content-length），此时 totalSize 记 0，走未知长度分支
+      let totalSize = parseInt(
+        headResp.headers['content-length'] ||
+        (headResp.headers['content-range'] || '').split('/')[1] ||
+        '0', 10
+      ) || 0;
       let contentType = headResp.headers['content-type'] || 'video/mp4';
+      const upstreamAcceptRanges = headResp.headers['accept-ranges'] || '';
 
       if (audioOnly) {
-        contentType = 'audio/mpeg'; // 纯音频流模拟
+        contentType = 'audio/mpeg'; // 息屏纯音频流模拟
       }
 
-      const rangeHeader = req.headers.range;
-
-      // 2. 如果客户端请求了 Range (如快进、定位、预加载)
-      if (rangeHeader && totalSize > 0) {
-        const parts = rangeHeader.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        // 如果启用了非会员加速，动态调整单次分块并发窗口大小（例如 2MB 预加载窗口）
-        const chunkSize = speedup ? 2 * 1024 * 1024 : 1024 * 1024;
-        const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + chunkSize - 1, totalSize - 1);
-        const chunkLength = end - start + 1;
-
-        res.writeHead(206, {
-          'Content-Range': `bytes ${start}-${end}/${totalSize}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': chunkLength,
-          'Content-Type': contentType,
-          'Cache-Control': 'no-cache',
-          'Access-Control-Allow-Origin': '*',
-          'X-Speedup-Engine': 'Multi-Thread-Chunk-Proxy',
-          'X-Audio-Mode': audioOnly ? 'true' : 'false'
-        });
-
-        // 多线程分块代理获取上游媒体分片
-        const streamResp = await axios.get(sourceUrl, {
-          headers: {
-            ...headHeaders,
-            'Range': `bytes=${start}-${end}`
-          },
-          responseType: 'stream',
-          timeout: 15000,
-          maxRedirects: 5
-        });
-
-        streamResp.data.pipe(res);
-      } else {
-        // 3. 全量流式传输
-        res.writeHead(200, {
-          'Content-Length': totalSize || undefined,
-          'Content-Type': contentType,
-          'Accept-Ranges': 'bytes',
-          'Cache-Control': 'no-cache',
-          'Access-Control-Allow-Origin': '*',
-          'X-Speedup-Engine': 'Direct-Stream-Proxy'
-        });
-
-        const streamResp = await axios.get(sourceUrl, {
-          headers: headHeaders,
-          responseType: 'stream',
-          timeout: 20000,
-          maxRedirects: 5
-        });
-
-        streamResp.data.pipe(res);
+      // 2. 忠实透传客户端的 Range 请求（保证拖拽进度条、快进、预加载均可用）
+      const clientRange = req.headers.range;
+      const upstreamHeaders2 = { ...baseUpstreamHeaders };
+      if (clientRange) {
+        upstreamHeaders2['Range'] = clientRange;
       }
+
+      const streamResp = await axios.get(sourceUrl, {
+        headers: upstreamHeaders2,
+        responseType: 'stream',
+        timeout: 30000,
+        maxRedirects: 5,
+        validateStatus: (s) => s >= 200 && s < 400
+      });
+
+      const upHeaders = streamResp.headers || {};
+      const headers = {
+        'Content-Type': contentType,
+        'Accept-Ranges': upstreamAcceptRanges || 'bytes',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
+        'X-Speedup-Engine': clientRange ? 'Multi-Thread-Chunk-Proxy' : 'Direct-Stream-Proxy',
+        'X-Audio-Mode': audioOnly ? 'true' : 'false'
+      };
+
+      // 仅在确知长度时才写 Content-Length，避免 undefined 触发 ERR_HTTP_INVALID_HEADER_VALUE
+      const upstreamLen = upHeaders['content-length'];
+      if (upstreamLen) {
+        headers['Content-Length'] = upstreamLen;
+      }
+      if (upHeaders['content-range']) {
+        headers['Content-Range'] = upHeaders['content-range'];
+      } else if (clientRange && totalSize > 0) {
+        const parts = String(clientRange).replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10) || 0;
+        const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+        headers['Content-Range'] = `bytes ${start}-${end}/${totalSize}`;
+      }
+
+      res.writeHead(streamResp.status === 206 ? 206 : 200, headers);
+
+      streamResp.data.on('error', () => {
+        try { res.end(); } catch (_) {}
+      });
+      // 客户端中断（切换视频/关闭播放器）时及时释放上游连接，避免连接泄漏
+      res.on('close', () => {
+        try { streamResp.data.destroy(); } catch (_) {}
+      });
+
+      streamResp.data.pipe(res);
     } catch (err) {
-      console.error('Stream media proxy error:', err.message);
-      // 若代理出现异常，直接 302 重定向到原始源，最大化保证可播放
-      if (!res.headersSent) {
-        res.redirect(sourceUrl);
+      const status = err.response ? err.response.status : 0;
+      console.error('Stream media proxy error:', status || '', err.message);
+      if (res.headersSent) {
+        try { res.end(); } catch (_) {}
+        return;
       }
+      // 网盘直链（需 Cookie 回源）不能降级 302，否则客户端必然 403/412；直接给出可读错误
+      if (noRedirectFallback) {
+        return res.status(502).send(
+          `网盘直链回源失败（上游 HTTP ${status || 'ERR'}）。可能原因：Cookie 失效、防盗链校验未通过，或该文件超出非会员下载限制。`
+        );
+      }
+      // 普通公网直链异常时降级 302 直连原始源，最大化保证可播放
+      res.redirect(sourceUrl);
     }
   }
 

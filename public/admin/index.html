@@ -442,10 +442,32 @@
           </button>
         </div>
 
+        <!-- 左右布局：左=目录树内容浏览，右=资源列表 -->
+        <div class="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-5 items-start">
+
+          <!-- 目录树侧栏：可查看每个目录里有哪些内容 -->
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden lg:sticky lg:top-4">
+            <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <h3 class="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                <i data-lucide="folder-tree" class="w-4 h-4 text-brand-600"></i>
+                <span>目录内容浏览</span>
+              </h3>
+              <button onclick="selectResourceDir('')" class="text-[11px] text-brand-600 hover:text-brand-700 font-semibold">全部</button>
+            </div>
+            <div id="resDirTree" class="p-2.5 space-y-1 max-h-[560px] overflow-y-auto text-xs">
+              <!-- 动态渲染目录树 -->
+            </div>
+            <div id="resDirSummary" class="px-4 py-2.5 border-t border-slate-100 bg-slate-50 text-[11px] text-slate-500">
+              点击目录查看其中的资源内容
+            </div>
+          </div>
+
+          <!-- 右侧：筛选栏 + 资源表格 -->
+          <div class="space-y-5">
         <!-- 筛选栏 -->
         <div class="flex flex-wrap items-center gap-3 bg-white p-4 rounded-xl border border-slate-200 text-xs">
           <span class="text-slate-500 font-medium">筛选目录：</span>
-          <select id="resFilterCategory" onchange="loadResources()" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white">
+          <select id="resFilterCategory" onchange="selectResourceDir(this.value)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white">
             <option value="">全部目录</option>
           </select>
 
@@ -483,6 +505,8 @@
                 <!-- 动态渲染 -->
               </tbody>
             </table>
+          </div>
+        </div>
           </div>
         </div>
       </section>
@@ -736,9 +760,10 @@
             <input type="checkbox" id="transferAutoImport" checked class="rounded text-brand-600 focus:ring-brand-500">
             <span>转存成功后，自动同步导入学习系统目录：</span>
           </label>
-          <select id="transferCategorySelect" class="w-full px-3 py-1.5 border rounded-lg bg-white text-xs">
+          <select id="transferCategorySelect" onchange="applyCategoryPanBinding()" class="w-full px-3 py-1.5 border rounded-lg bg-white text-xs">
             <!-- 动态填充分类 -->
           </select>
+          <p id="transferBindingHint" class="text-[11px] text-brand-700/80">选择目录后，若该目录已映射网盘目录，将自动填入上方「目标保存目录」</p>
           <div class="flex items-center gap-3 pt-1">
             <span class="text-slate-600">资源类型：</span>
             <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="transferType" value="video" checked> 视频</label>
@@ -878,6 +903,37 @@
           <label class="block font-bold text-slate-700 mb-1">目录描述与学习引导语</label>
           <textarea id="catFormDesc" rows="2" placeholder="简要描述本目录适合孩子的学习目标..." class="w-full px-3 py-2 border rounded-xl"></textarea>
         </div>
+
+        <!-- 网盘目录映射：本目录 ↔ 网盘中的实际保存目录 -->
+        <div class="p-3 rounded-xl bg-indigo-50/60 border border-indigo-100 space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="font-bold text-indigo-800 flex items-center gap-1">
+              <i data-lucide="link-2" class="w-3.5 h-3.5"></i>
+              <span>网盘目录映射（转存去向）</span>
+            </label>
+            <button type="button" onclick="clearCategoryPanBinding()" class="text-[11px] text-rose-500 hover:text-rose-700 font-semibold">解绑</button>
+          </div>
+          <p class="text-[11px] text-indigo-700/80 leading-relaxed">
+            绑定后，本目录搜索到的资源转存时会<strong>自动定位</strong>到该网盘目录，实现"目录树 ↔ 网盘目录"一一对应。
+          </p>
+          <div class="grid grid-cols-2 gap-2">
+            <select id="catFormPanType" class="px-2.5 py-2 border border-indigo-200 rounded-xl bg-white">
+              <option value="">未绑定网盘</option>
+              <option value="quark">夸克网盘</option>
+              <option value="baidu">百度网盘</option>
+              <option value="uc">UC网盘</option>
+              <option value="cloud189">天翼云盘</option>
+            </select>
+            <button type="button" onclick="openCategoryDirPicker()" id="btnCatPickDir"
+                    class="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center justify-center gap-1">
+              <i data-lucide="folder-search" class="w-3.5 h-3.5"></i>
+              <span>选择网盘目录</span>
+            </button>
+          </div>
+          <div id="catFormPanDirBox" class="hidden text-[11px] text-indigo-900 bg-white border border-indigo-200 rounded-lg px-2.5 py-1.5 font-mono break-all"></div>
+          <input type="hidden" id="catFormPanDirId">
+          <input type="hidden" id="catFormPanDirPath">
+        </div>
       </div>
 
       <div class="flex justify-end gap-2 pt-2 border-t">
@@ -995,6 +1051,32 @@
     </div>
   </div>
 
+  <!-- ==================== 模态框 7：网盘文件浏览与导入 ==================== -->
+  <div id="panBrowserModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-4 max-h-[88vh] flex flex-col">
+      <div class="flex items-center justify-between border-b pb-2">
+        <div>
+          <h3 class="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+            <i data-lucide="hard-drive-download" class="w-4 h-4 text-brand-600"></i>
+            <span>网盘目录内容</span>
+          </h3>
+          <p id="panBrowserPath" class="text-[11px] text-slate-400 mt-0.5">—</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="panBrowseUp()" class="px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] text-slate-600 hover:bg-slate-50">⬆ 上一级</button>
+          <button onclick="closeModal('panBrowserModal')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+      </div>
+      <div id="panBrowserBody" class="flex-1 overflow-y-auto text-xs space-y-1 min-h-[200px]">
+        <div class="p-6 text-center text-slate-400">加载中...</div>
+      </div>
+      <div class="border-t pt-2 text-[11px] text-slate-400 flex items-center justify-between">
+        <span>点击文件夹可逐级进入；点击「导入为资源」把文件挂到当前目录，儿童端即可直接播放</span>
+        <span id="panBrowserStat"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== 模态框 6：手动录入新资源 ==================== -->
   <div id="resourceModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
     <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
@@ -1095,6 +1177,12 @@
           <div class="flex items-center justify-between mt-1 text-[11px] text-slate-400">
             <span>支持包含登录态的完整 Cookie，用于调用转存与直链解析</span>
             <button type="button" onclick="fillMockCookie()" class="text-brand-600 hover:underline">填入演示测试凭证</button>
+          </div>
+          <div class="mt-2 text-[11px] leading-relaxed bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">
+            <div class="font-bold mb-0.5">夸克网盘必须包含 <code class="font-mono">__puus</code> 字段</div>
+            <div>① 用电脑浏览器打开 <span class="font-mono">pan.quark.cn</span> 并登录（手机夸克 App 扫码即可）；</div>
+            <div>② 按 F12 → Network（网络）→ 刷新页面 → 点任意一条请求 → Request Headers 里复制 <span class="font-mono">Cookie:</span> 后面的整串；</div>
+            <div>③ 粘贴到上方文本框保存。缺少 <code class="font-mono">__puus</code> 时转存/列目录仍可用，但视频播放会被夸克 CDN 拒绝（403 auth miss）。</div>
           </div>
         </div>
       </div>

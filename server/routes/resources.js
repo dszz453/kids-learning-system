@@ -17,16 +17,19 @@ router.get('/', (req, res) => {
       const token = authHeader.replace(/^Bearer\s+/i, '');
       const decoded = jwt.verify(token, JWT_SECRET);
       if (decoded && decoded.role !== 'admin' && decoded.allowedCategoryIds && !decoded.allowedCategoryIds.includes('*')) {
-        // 允许直接匹配或匹配父级目录
+        // 允许直接匹配，并递归展开其所有子孙目录
         const allCats = db.get('categories') || [];
         const allowedSet = new Set(decoded.allowedCategoryIds);
-
-        // 如果用户有父目录权限，其子目录也属于允许范围
-        allCats.forEach(c => {
-          if (c.parentId && allowedSet.has(c.parentId)) {
-            allowedSet.add(c.id);
-          }
-        });
+        let changed = true;
+        while (changed) {
+          changed = false;
+          allCats.forEach(c => {
+            if (c.parentId && allowedSet.has(c.parentId) && !allowedSet.has(c.id)) {
+              allowedSet.add(c.id);
+              changed = true;
+            }
+          });
+        }
 
         list = list.filter(r => allowedSet.has(r.categoryId));
       }
@@ -35,16 +38,21 @@ router.get('/', (req, res) => {
     }
   }
 
-  // 分类筛选
+  // 分类筛选（递归包含所有子孙目录）
   if (categoryId) {
-    // 获取该分类及其所有子分类ID
     const allCats = db.get('categories') || [];
-    const targetCatIds = [categoryId];
-    allCats.forEach(c => {
-      if (c.parentId === categoryId) targetCatIds.push(c.id);
-    });
+    const targetCatIds = new Set([categoryId]);
+    const walk = (pid) => {
+      allCats.filter(c => c.parentId === pid).forEach(c => {
+        if (!targetCatIds.has(c.id)) {
+          targetCatIds.add(c.id);
+          walk(c.id);
+        }
+      });
+    };
+    walk(categoryId);
 
-    list = list.filter(r => targetCatIds.includes(r.categoryId));
+    list = list.filter(r => targetCatIds.has(r.categoryId));
   }
 
   // 资源类型筛选 (video, audio, pdf)

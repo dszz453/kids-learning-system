@@ -19,6 +19,27 @@ document.addEventListener('DOMContentLoaded', () => {
   initKidAuth(); // 优先进行账号登录校验
 });
 
+// ==================== 0.1 播放地址统一解析 ====================
+// 本地文件流 / 已代理地址直接复用，避免二次包装导致语义丢失（如息屏纯音频模式失效）
+function resolveStreamUrl(rawUrl, mode) {
+  const u = String(rawUrl || '');
+  if (u.startsWith('/api/stream/local')) {
+    const sep = u.includes('?') ? '&' : '?';
+    return mode === 'audio' ? `${u}${sep}audioOnly=true` : u;
+  }
+  // 网盘资源（转存后直接播放）：服务端已按类型自动选择转码播放/直链
+  if (u.startsWith('/api/pan/stream')) {
+    const sep = u.includes('?') ? '&' : '?';
+    return mode === 'audio' ? `${u}${sep}audioOnly=true` : u;
+  }
+  if (u.startsWith('/api/stream/')) {
+    return u; // 已是代理地址，直接使用
+  }
+  if (mode === 'audio') return `/api/stream/audio-extract?url=${encodeURIComponent(u)}`;
+  if (mode === 'pdf') return `/api/stream/pdf?url=${encodeURIComponent(u)}`;
+  return `/api/stream/play?url=${encodeURIComponent(u)}&speedup=true`;
+}
+
 // ==================== 0. 儿童端账号登录与权限控制 ====================
 function getKidToken() {
   return localStorage.getItem('kidToken') || localStorage.getItem('token') || '';
@@ -248,48 +269,143 @@ function renderPrimaryModules() {
   }).join('');
 }
 
-// 进入某一级目录，展示其二级子目录
+// ==================== 多级目录导航（支持任意层级下钻） ====================
+// 导航路径栈: [{id, name}]
+let navPath = [];
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+// 收集某目录及其所有子孙目录 id
+function collectSubtreeIds(catId) {
+  const ids = new Set([catId]);
+  const walk = (pid) => {
+    allCategoriesList.filter(c => c.parentId === pid).forEach(c => {
+      if (!ids.has(c.id)) { ids.add(c.id); walk(c.id); }
+    });
+  };
+  walk(catId);
+  return ids;
+}
+
+// 统计某目录（含所有子孙）下的资源数量（基于后端返回的 resourceCount 累加）
+function countSubtreeResources(catId) {
+  const ids = collectSubtreeIds(catId);
+  return allCategoriesList
+    .filter(c => ids.has(c.id))
+    .reduce((sum, c) => sum + (c.resourceCount || 0), 0);
+}
+
+// 进入某一目录（支持任意层级下钻）
 function enterCategory(catId) {
-  const targetCat = allCategoriesList.find(c => c.id === catId);
-  if (!targetCat) return;
+  const cat = allCategoriesList.find(c => c.id === catId);
+  if (!cat) return;
+
+  const last = navPath[navPath.length - 1];
+  if (!last || last.id !== catId) {
+    navPath.push({ id: catId, name: cat.name });
+  }
+  renderNavLevel(catId);
+}
+
+// 渲染指定层级的子目录与资源
+function renderNavLevel(catId) {
+  const cat = allCategoriesList.find(c => c.id === catId);
+  if (!cat) return;
 
   currentParentId = catId;
-  const children = allCategoriesList.filter(c => c.parentId === catId);
+  renderBreadcrumb();
 
-  // 更新面包屑
-  const breadcrumb = document.getElementById('breadcrumbBar');
-  breadcrumb.classList.remove('hidden');
-  document.getElementById('breadcrumbCurrentText').innerText = targetCat.name;
+  const children = allCategoriesList.filter(c => c.parentId === catId);
+  const topSec = document.getElementById('topModulesSection');
+  const subSec = document.getElementById('subCategoriesSection');
+
+  topSec.classList.add('hidden');
 
   if (children.length > 0) {
-    // 隐藏一级网格，显示二级网格
-    document.getElementById('topModulesSection').classList.add('hidden');
-    const subSec = document.getElementById('subCategoriesSection');
     subSec.classList.remove('hidden');
-    document.getElementById('subCatTitle').innerText = `📂 ${targetCat.name} · 子目录`;
-    document.getElementById('subCatCountTip').innerText = `共 ${children.length} 个专属分类`;
+    document.getElementById('subCatTitle').innerText = `📂 ${cat.name} · 子目录`;
+    document.getElementById('subCatCountTip').innerText = `共 ${children.length} 个分类`;
 
     const subGrid = document.getElementById('subCategoriesGrid');
-    subGrid.innerHTML = children.map(sub => `
-      <div onclick="selectCategoryFilter('${sub.id}', '${sub.name}')" 
-           class="bg-white rounded-2xl p-3.5 border-2 border-indigo-100 hover:border-brand-500 shadow-sm cursor-pointer kid-card-bounce flex items-center gap-3">
-        <div class="w-11 h-11 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0" style="background-color: ${sub.bgColor || '#EEF2FF'}">
-          ${sub.emoji || '📘'}
+    subGrid.innerHTML = children.map(sub => {
+      const subChildren = allCategoriesList.filter(c => c.parentId === sub.id);
+      const count = countSubtreeResources(sub.id);
+      const isLeaf = subChildren.length === 0;
+      return `
+        <div onclick="enterCategory('${sub.id}')"
+             class="bg-white rounded-2xl p-3.5 border-2 border-indigo-100 hover:border-brand-500 shadow-sm cursor-pointer kid-card-bounce flex items-center gap-3">
+          <div class="w-11 h-11 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0" style="background-color: ${sub.bgColor || '#EEF2FF'}">
+            ${sub.emoji || (isLeaf ? '📘' : '📂')}
+          </div>
+          <div class="min-w-0 flex-1">
+            <h5 class="font-bold text-slate-900 text-xs truncate">${escapeHtml(sub.name)}</h5>
+            <span class="text-[10px] ${isLeaf ? 'text-brand-600' : 'text-indigo-500'} font-semibold">
+              ${isLeaf ? `${count} 个课件` : `${subChildren.length} 个子目录`}
+            </span>
+          </div>
+          <span class="text-slate-300 text-lg leading-none">›</span>
         </div>
-        <div class="min-w-0">
-          <h5 class="font-bold text-slate-900 text-xs truncate">${sub.name}</h5>
-          <span class="text-[10px] text-brand-600 font-semibold">${sub.resourceCount || 0} 个精品课件</span>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
+  } else {
+    // 已到最下级目录，直接展示该目录下的资源
+    subSec.classList.add('hidden');
   }
 
-  // 同时刷新资源列表，仅显示当前目录下的内容
+  document.getElementById('resourceListTitle').innerHTML = `<span>🎯 ${escapeHtml(cat.name)} 资源</span>`;
   loadKidsResources(catId);
 }
 
-// 面包屑返回全部首页
+// 渲染多级面包屑路径
+function renderBreadcrumb() {
+  const bar = document.getElementById('breadcrumbBar');
+  const pathEl = document.getElementById('breadcrumbPath');
+  if (navPath.length === 0) {
+    bar.classList.add('hidden');
+    return;
+  }
+  bar.classList.remove('hidden');
+
+  const parts = ['<span class="text-brand-600 font-bold cursor-pointer hover:underline flex-shrink-0" onclick="goBackToHome()">🏠 首页</span>'];
+  navPath.forEach((n, i) => {
+    const isLast = i === navPath.length - 1;
+    if (isLast) {
+      parts.push(`<span class="text-slate-900 font-bold truncate">${escapeHtml(n.name)}</span>`);
+    } else {
+      parts.push(`<span class="text-brand-600 font-medium cursor-pointer hover:underline truncate" onclick="jumpToNavLevel(${i})">${escapeHtml(n.name)}</span>`);
+      parts.push('<span class="text-slate-300 flex-shrink-0">/</span>');
+    }
+  });
+  pathEl.innerHTML = parts.join('');
+
+  const upBtn = document.getElementById('btnUpOneLevel');
+  if (upBtn) upBtn.classList.toggle('hidden', navPath.length <= 1);
+}
+
+// 返回上一级目录
+function goUpOneLevel() {
+  if (navPath.length === 0) return;
+  navPath.pop();
+  if (navPath.length === 0) {
+    goBackToHome();
+  } else {
+    renderNavLevel(navPath[navPath.length - 1].id);
+  }
+}
+
+// 点击面包屑跳转到指定层级
+function jumpToNavLevel(idx) {
+  navPath = navPath.slice(0, idx + 1);
+  renderNavLevel(navPath[idx].id);
+}
+
+// 返回首页大模块
 function goBackToHome() {
+  navPath = [];
   currentParentId = null;
   document.getElementById('breadcrumbBar').classList.add('hidden');
   document.getElementById('topModulesSection').classList.remove('hidden');
@@ -298,10 +414,12 @@ function goBackToHome() {
   loadKidsResources();
 }
 
+// 兼容旧调用：直接定位到某分类
 function selectCategoryFilter(catId, catName) {
-  document.getElementById('breadcrumbCurrentText').innerText = catName;
-  document.getElementById('resourceListTitle').innerHTML = `<span>🎯 ${catName} 资源专区</span>`;
-  loadKidsResources(catId);
+  const cat = allCategoriesList.find(c => c.id === catId);
+  if (cat) {
+    enterCategory(catId);
+  }
 }
 
 // ==================== 2. 学习资源加载与渲染 ====================
@@ -452,9 +570,7 @@ function playKidsResource(resId) {
 
 function setupMediaPlayback(res, audioExtractOnly = false) {
   const mediaContainer = document.getElementById('fullPlayerMediaContainer');
-  const proxyUrl = audioExtractOnly 
-    ? `/api/stream/audio-extract?url=${encodeURIComponent(res.url)}`
-    : `/api/stream/play?url=${encodeURIComponent(res.url)}&speedup=true`;
+  const proxyUrl = resolveStreamUrl(res.url, audioExtractOnly ? 'audio' : 'play');
 
   document.getElementById('fullPlayerTitle').innerText = res.title;
   document.getElementById('fullPlayerSubtitle').innerText = `${res.categoryName} · 支持息屏后台听课`;
@@ -573,13 +689,25 @@ function toggleScreenOffAudioMode() {
   if (!currentPlayingResource) return;
   isAudioOnlyMode = !isAudioOnlyMode;
   setupMediaPlayback(currentPlayingResource, isAudioOnlyMode);
-  alert(isAudioOnlyMode 
-    ? '🌙 已切换至【息屏磨耳朵模式】：已自动为您剥离画面，您现在可以放心锁屏或切换到后台，声音将继续高品质播放！' 
-    : '🎬 已恢复画面播放模式。');
+  kidToast(isAudioOnlyMode
+    ? '🌙 已切换至【息屏磨耳朵模式】：已自动剥离画面，现在可以放心锁屏或切到后台，声音继续高品质播放！'
+    : '🎬 已恢复画面播放模式。', 4200);
 }
 
 function showScreenOffTip() {
-  alert('【息屏播放与后台磨耳朵技术原理】\n1. 系统通过 Web MediaSession API 占用了系统级媒体通道；\n2. 锁屏后，安卓手机与耳机按键仍可暂停/播放/换曲；\n3. 点击“息屏听书”会只拉取音频分片，帮您省下 90% 流量并彻底防止手机发热！');
+  kidToast('【息屏播放与后台磨耳朵】系统已通过 MediaSession 占用系统级媒体通道：锁屏后耳机按键仍可暂停/播放/换曲；点击“息屏听书”只拉取音频分片，省约 90% 流量并防止手机发热。', 6000);
+}
+
+// 儿童端非阻塞气泡提示（替代 alert，避免打断播放与锁屏媒体通道）
+let kidToastTimer = null;
+function kidToast(msg, duration = 3200) {
+  const box = document.getElementById('kidToast');
+  const text = document.getElementById('kidToastText');
+  if (!box || !text) { console.log('[kidToast]', msg); return; }
+  text.innerText = msg;
+  box.classList.remove('hidden');
+  if (kidToastTimer) clearTimeout(kidToastTimer);
+  kidToastTimer = setTimeout(() => box.classList.add('hidden'), duration);
 }
 
 // MediaSession 原生锁屏/通知栏适配
@@ -625,7 +753,7 @@ function formatTime(secs) {
 function openPdfViewer(res) {
   document.getElementById('pdfViewerTitle').innerText = res.title;
   const pdfFrame = document.getElementById('pdfViewerFrame');
-  pdfFrame.src = `/api/stream/pdf?url=${encodeURIComponent(res.url)}`;
+  pdfFrame.src = resolveStreamUrl(res.url, 'pdf');
   document.getElementById('pdfViewerModal').classList.remove('hidden');
 }
 

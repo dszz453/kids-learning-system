@@ -293,22 +293,64 @@ class PanAccountService {
 
   /**
    * 用夸克 service_ticket 换取登录 Cookie
+   *
+   * 关键点：夸克 Web 主鉴权 Cookie `__puus` 只在「换取票据后的重定向链」中下发，
+   * 若只取第一步响应（旧实现 maxRedirects:0）会漏掉它，导致：
+   *   - 目录/转存等 API 仍可用（只校验 __pus/__kp/__kps/__uid）
+   *   - 但视频转码播放地址的 CDN 回调校验会报 `require login [auth miss]`（403）
+   * 因此这里改为：逐跳跟随重定向 + 回访首页/列表页，收集全部 Set-Cookie。
    */
   async exchangeQuarkCookie(ticket) {
-    try {
-      const resp = await axios.get('https://pan.quark.cn/account/info', {
-        params: { st: ticket, lw: 'scan' },
-        headers: { 'User-Agent': UA, 'Referer': 'https://pan.quark.cn/' },
-        timeout: 12000,
-        maxRedirects: 0,
-        validateStatus: () => true
+    const jar = {};
+    const absorb = (setCookies) => {
+      (setCookies || []).forEach((c) => {
+        const kv = String(c).split(';')[0];
+        const i = kv.indexOf('=');
+        if (i > 0) jar[kv.slice(0, i).trim()] = kv.slice(i + 1).trim();
       });
-      const setCookies = resp.headers['set-cookie'] || [];
-      const pairs = setCookies.map(c => c.split(';')[0]).filter(Boolean);
-      // 关注核心 Cookie
-      const keep = pairs.filter(p => /^(__pus|__kps|__uid|__kp|__uid|b-user-id|__puus|__pus_)/.test(p.split('=')[0]));
-      const finalPairs = keep.length > 0 ? keep : pairs;
-      return finalPairs.join('; ');
+    };
+    const cookieStr = () => Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
+
+    try {
+      let url = `https://pan.quark.cn/account/info?st=${encodeURIComponent(ticket)}&lw=scan`;
+
+      // 1) 逐跳跟随重定向，收集每一跳的 Set-Cookie（__puus 通常在这一步下发）
+      for (let hop = 0; hop < 6; hop++) {
+        const headers = { 'User-Agent': UA, 'Referer': 'https://pan.quark.cn/' };
+        if (Object.keys(jar).length) headers['Cookie'] = cookieStr();
+
+        const resp = await axios.get(url, {
+          headers, timeout: 12000, maxRedirects: 0, validateStatus: () => true
+        });
+        absorb(resp.headers['set-cookie']);
+
+        const loc = resp.headers['location'];
+        if (!loc) break;
+        try {
+          url = new URL(loc, url).toString();
+        } catch (e) { break; }
+        // 只跟随夸克域内的跳转，避免跳到外部
+        if (!/^https?:\/\/([a-z0-9-]+\.)*quark\.cn\//i.test(url)) break;
+      }
+
+      // 2) 回访 Web 首页与文件列表页，补齐 Web 端专属 Cookie（如 __puus / __ktd）
+      const extraPages = ['https://pan.quark.cn/', 'https://pan.quark.cn/list'];
+      for (const p of extraPages) {
+        try {
+          const r = await axios.get(p, {
+            headers: { 'User-Agent': UA, 'Cookie': cookieStr(), 'Referer': 'https://pan.quark.cn/' },
+            timeout: 10000, maxRedirects: 3, validateStatus: () => true
+          });
+          absorb(r.headers['set-cookie']);
+        } catch (e) { /* 单页失败不影响整体 */ }
+      }
+
+      const finalCookie = cookieStr();
+      if (finalCookie) {
+        const hasPuus = /(^|;\s*)__puus=/.test(finalCookie);
+        console.log(`[PanAccount] 夸克 Cookie 换取完成，键=${Object.keys(jar).join(',')}，含__puus=${hasPuus}`);
+      }
+      return finalCookie;
     } catch (e) {
       console.warn('[PanAccount] 夸克换取 Cookie 失败:', e.message);
       return '';

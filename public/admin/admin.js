@@ -28,6 +28,27 @@ function initIcons() {
   }
 }
 
+// ==================== 播放地址统一解析 ====================
+// 本地文件流 / 已代理地址直接复用，避免二次包装导致语义丢失（如息屏纯音频模式失效）
+function resolveStreamUrl(rawUrl, mode) {
+  const u = String(rawUrl || '');
+  if (u.startsWith('/api/stream/local')) {
+    const sep = u.includes('?') ? '&' : '?';
+    return mode === 'audio' ? `${u}${sep}audioOnly=true` : u;
+  }
+  // 网盘资源（转存后直接播放）：服务端自动选择转码播放地址/直链
+  if (u.startsWith('/api/pan/stream')) {
+    const sep = u.includes('?') ? '&' : '?';
+    return mode === 'audio' ? `${u}${sep}audioOnly=true` : u;
+  }
+  if (u.startsWith('/api/stream/')) {
+    return u; // 已是代理地址，直接使用
+  }
+  if (mode === 'audio') return `/api/stream/audio-extract?url=${encodeURIComponent(u)}`;
+  if (mode === 'pdf') return `/api/stream/pdf?url=${encodeURIComponent(u)}`;
+  return `/api/stream/play?url=${encodeURIComponent(u)}&speedup=true`;
+}
+
 // ==================== 管理员身份认证与登录控制 ====================
 async function checkAdminAuth() {
   const token = localStorage.getItem('token');
@@ -559,19 +580,63 @@ function openTransferModal(item) {
   // 目标目录不再手动输入，改为从网盘实时读取后选择
   document.getElementById('transferTargetDir').value = '';
   document.getElementById('transferTargetDirId').value = '';
+  transferDirAutoFilled = false;
   const hint = document.getElementById('transferDirHint');
   if (hint) {
     hint.innerHTML = `💡 请点击「浏览」从 <strong>${PAN_LABEL[item.panType] || '网盘'}</strong> 读取目录后选择（无需手动输入）`;
   }
 
-  // 填充分类下拉
+  // 填充分类下拉（按层级缩进，支持选到最下级目录）
   const catSelect = document.getElementById('transferCategorySelect');
-  catSelect.innerHTML = allCategories.map(c => `
-    <option value="${c.id}">${c.emoji} ${c.name} (${c.gradeLevel || '全阶段'})</option>
-  `).join('');
+  catSelect.innerHTML = buildCategoryOptions();
 
   document.getElementById('transferModal').classList.remove('hidden');
+  applyCategoryPanBinding(); // 若该目录已映射网盘目录，自动填入目标保存目录
   initIcons();
+}
+
+// 依据所选目录的「网盘目录映射」自动定位转存目标目录
+let transferDirAutoFilled = false;
+
+function applyCategoryPanBinding() {
+  const catId = document.getElementById('transferCategorySelect').value;
+  const hintEl = document.getElementById('transferBindingHint');
+  const cat = allCategories.find(c => c.id === catId);
+  const binding = cat && cat.panBinding;
+
+  if (!binding || !binding.dirId) {
+    // 未映射：若上次是自动填充的，则清空，避免沿用上一个目录造成误转存
+    if (transferDirAutoFilled) {
+      document.getElementById('transferTargetDir').value = '';
+      document.getElementById('transferTargetDirId').value = '';
+      transferDirAutoFilled = false;
+      const dirHint = document.getElementById('transferDirHint');
+      if (dirHint) dirHint.innerHTML = '💡 请点击「浏览」从网盘读取目录后选择（无需手动输入）';
+    }
+    if (hintEl) {
+      hintEl.className = 'text-[11px] text-brand-700/80';
+      hintEl.innerText = cat
+        ? `「${cat.name}」尚未映射网盘目录，请点「浏览」手动选择，或到「目录管理」为该目录绑定网盘目录`
+        : '选择目录后，若该目录已映射网盘目录，将自动填入上方「目标保存目录」';
+    }
+    return;
+  }
+
+  // 绑定网盘与当前目标网盘不一致时，切换目标网盘保持一致
+  const panSel = document.getElementById('transferTargetPan');
+  if (panSel.value !== binding.panType) {
+    panSel.value = binding.panType;
+  }
+
+  document.getElementById('transferTargetDir').value = binding.dirPath || binding.dirId;
+  document.getElementById('transferTargetDirId').value = binding.dirId;
+  transferDirAutoFilled = true;
+  if (hintEl) {
+    hintEl.className = 'text-[11px] text-emerald-700 font-semibold';
+    hintEl.innerText = `✓ 已按「${cat.name}」的映射自动定位到 ${PAN_LABEL[binding.panType] || binding.panType}：${binding.dirPath || binding.dirId}`;
+  }
+  const dirHint = document.getElementById('transferDirHint');
+  if (dirHint) dirHint.innerHTML = `✓ 目录树映射自动填充：<strong>${escapeHtml(binding.dirPath || binding.dirId)}</strong>（可点「浏览」改选）`;
 }
 
 async function executeTransfer() {
@@ -635,7 +700,9 @@ let dirPickerState = {
   panName: '',
   items: [],
   path: [{ id: '', name: '根目录' }],
-  currentId: ''
+  currentId: '',
+  // 用途：'transfer' 转存目标目录 / 'category' 目录树↔网盘目录映射绑定
+  purpose: 'transfer'
 };
 
 function escapeHtml(s) {
@@ -644,12 +711,36 @@ function escapeHtml(s) {
   }[c]));
 }
 
+/**
+ * 构建层级缩进的分类下拉选项（支持选到最下级目录）
+ */
+function buildCategoryOptions() {
+  const opts = [];
+  const walk = (parentId, depth) => {
+    allCategories
+      .filter(c => (c.parentId || null) === parentId)
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+      .forEach(c => {
+        const indent = depth > 0 ? '　'.repeat(depth) : '';
+        const branch = depth > 0 ? '└ ' : '';
+        const hasChildren = allCategories.some(x => x.parentId === c.id);
+        const mark = hasChildren ? '📂' : '📄';
+        opts.push(`<option value="${c.id}">${indent}${branch}${mark} ${c.emoji || ''}${c.name}</option>`);
+        walk(c.id, depth + 1);
+      });
+  };
+  walk(null, 0);
+  return opts.join('') || '<option value="">（暂无分类，请先创建目录）</option>';
+}
+
 function resetTransferTargetDir() {
   const pan = document.getElementById('transferTargetPan').value;
   document.getElementById('transferTargetDir').value = '';
   document.getElementById('transferTargetDirId').value = '';
+  transferDirAutoFilled = false;
   const hint = document.getElementById('transferDirHint');
   if (hint) hint.innerHTML = `💡 请点击「浏览」从 <strong>${PAN_LABEL[pan] || pan}</strong> 读取目录后选择`;
+  applyCategoryPanBinding(); // 切换网盘后按当前目录的映射重新定位
 }
 
 function openDirPicker() {
@@ -659,7 +750,8 @@ function openDirPicker() {
     panName: PAN_LABEL[pan] || pan,
     items: [],
     path: [{ id: '', name: '根目录' }],
-    currentId: ''
+    currentId: '',
+    purpose: 'transfer'
   };
   const nameEl = document.getElementById('dirPickerPanName');
   if (nameEl) nameEl.innerText = dirPickerState.panName;
@@ -667,6 +759,37 @@ function openDirPicker() {
   renderDirBreadcrumb();
   loadDirPickerList('');
   initIcons();
+}
+
+// 目录树↔网盘目录映射：从分类弹窗打开目录选择器
+function openCategoryDirPicker() {
+  const pan = document.getElementById('catFormPanType').value;
+  if (!pan) {
+    alert('请先在上方选择要绑定的网盘（夸克 / 百度 / UC / 天翼）');
+    return;
+  }
+  dirPickerState = {
+    panType: pan,
+    panName: PAN_LABEL[pan] || pan,
+    items: [],
+    path: [{ id: '', name: '根目录' }],
+    currentId: '',
+    purpose: 'category'
+  };
+  const nameEl = document.getElementById('dirPickerPanName');
+  if (nameEl) nameEl.innerText = dirPickerState.panName;
+  document.getElementById('dirPickerModal').classList.remove('hidden');
+  renderDirBreadcrumb();
+  loadDirPickerList('');
+  initIcons();
+}
+
+function clearCategoryPanBinding() {
+  document.getElementById('catFormPanType').value = '';
+  document.getElementById('catFormPanDirId').value = '';
+  document.getElementById('catFormPanDirPath').value = '';
+  const box = document.getElementById('catFormPanDirBox');
+  if (box) { box.classList.add('hidden'); box.innerText = ''; }
 }
 
 function renderDirBreadcrumb() {
@@ -752,6 +875,20 @@ function pickDirByIndex(i) {
 function confirmDirPick() {
   const p = dirPickerState.path;
   const pathStr = '/' + p.map(n => n.name).join('/');
+
+  if (dirPickerState.purpose === 'category') {
+    // 目录树 ↔ 网盘目录映射绑定
+    document.getElementById('catFormPanDirId').value = dirPickerState.currentId;
+    document.getElementById('catFormPanDirPath').value = pathStr;
+    const box = document.getElementById('catFormPanDirBox');
+    if (box) {
+      box.classList.remove('hidden');
+      box.innerHTML = `🔗 已绑定 ${escapeHtml(dirPickerState.panName)}：<strong>${escapeHtml(pathStr)}</strong>`;
+    }
+    closeModal('dirPickerModal');
+    return;
+  }
+
   document.getElementById('transferTargetDir').value = pathStr;
   document.getElementById('transferTargetDirId').value = dirPickerState.currentId;
   const hint = document.getElementById('transferDirHint');
@@ -760,6 +897,12 @@ function confirmDirPick() {
 }
 
 // ==================== 3. 网盘扫码配置 ====================
+// 网盘授权有效性实测状态: panType -> { state: 'checking'|'valid'|'invalid', message }
+let panAuthHealth = {};
+let allPanAccounts = [];
+// 链路诊断结果缓存: panType -> { ok, cookieKeys, apiOk, playOk, streamOk, hint }
+let panDiagResult = {};
+
 async function loadPanAccounts() {
   try {
     const res = await fetch('/api/pan/accounts', {
@@ -767,12 +910,41 @@ async function loadPanAccounts() {
     });
     const data = await res.json();
     renderPanAccounts(data.accounts || []);
+    verifyPanAuth(data.accounts || []); // 渲染后异步实测各网盘授权是否真的有效
   } catch (e) {
     console.error('Load pan accounts failed:', e);
   }
 }
 
+// 逐个调用真实目录接口，判断 Cookie 是否真的还有效（避免"显示已授权、实际已失效"）
+async function verifyPanAuth(accounts) {
+  const targets = accounts.filter(a => a.status === 'active');
+  if (!targets.length) return;
+  targets.forEach(a => { panAuthHealth[a.panType] = { state: 'checking', message: '正在检测授权…' }; });
+  renderPanAccounts(accounts);
+
+  await Promise.all(targets.map(async (a) => {
+    try {
+      const r = await fetch(`/api/pan/directory/list?panType=${a.panType}`, {
+        headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+      });
+      const d = await r.json();
+      if (d.needAuth) {
+        panAuthHealth[a.panType] = { state: 'invalid', message: d.message || '授权已失效，请重新扫码登录' };
+      } else if (d.success) {
+        panAuthHealth[a.panType] = { state: 'valid', message: `授权有效（已读取到 ${(d.items || []).length} 个目录项）` };
+      } else {
+        panAuthHealth[a.panType] = { state: 'invalid', message: d.message || '授权校验失败' };
+      }
+    } catch (e) {
+      panAuthHealth[a.panType] = { state: 'invalid', message: '授权校验异常：' + e.message };
+    }
+    renderPanAccounts(accounts);
+  }));
+}
+
 function renderPanAccounts(accounts) {
+  allPanAccounts = accounts || [];
   const grid = document.getElementById('panAccountsGrid');
   const logos = {
     quark: { name: '夸克网盘', icon: '⚡', color: 'from-orange-500 to-amber-500', desc: '支持免密极速转存与高码率直链' },
@@ -784,9 +956,24 @@ function renderPanAccounts(accounts) {
   grid.innerHTML = accounts.map(acc => {
     const meta = logos[acc.panType] || { name: acc.name, icon: '📦', color: 'from-indigo-600 to-brand-500', desc: '' };
     const isActive = acc.status === 'active';
+    const health = panAuthHealth[acc.panType];
+
+    // 徽章文案与配色：真实检测结果优先于配置状态
+    let badgeCls = 'bg-slate-100 text-slate-500', badgeText = '待配置扫码';
+    if (isActive) {
+      if (!health || health.state === 'checking') { badgeCls = 'bg-amber-100 text-amber-700'; badgeText = '检测中…'; }
+      else if (health.state === 'valid') { badgeCls = 'bg-emerald-100 text-emerald-800'; badgeText = '已授权在线'; }
+      else { badgeCls = 'bg-rose-100 text-rose-700'; badgeText = '授权已失效'; }
+    }
+
+    const healthTip = (isActive && health && health.state === 'invalid')
+      ? `<div class="mt-2 text-[11px] text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 leading-relaxed">⚠️ ${escapeHtml(health.message)}</div>`
+      : (isActive && health && health.state === 'valid'
+        ? `<div class="mt-2 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5">✅ ${escapeHtml(health.message)}</div>`
+        : '');
 
     return `
-      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+      <div class="bg-white rounded-2xl border ${isActive && health && health.state === 'invalid' ? 'border-rose-300' : 'border-slate-200'} p-5 shadow-sm space-y-4">
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-3">
             <div class="w-12 h-12 rounded-xl bg-gradient-to-tr ${meta.color} flex items-center justify-center text-white text-2xl shadow-md">
@@ -795,8 +982,8 @@ function renderPanAccounts(accounts) {
             <div>
               <h4 class="font-bold text-slate-900 text-sm flex items-center gap-2">
                 ${meta.name}
-                <span class="text-[11px] px-2 py-0.5 rounded-full font-bold ${isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}">
-                  ${isActive ? '已授权在线' : '待配置扫码'}
+                <span class="text-[11px] px-2 py-0.5 rounded-full font-bold ${badgeCls}">
+                  ${badgeText}
                 </span>
               </h4>
               <p class="text-xs text-slate-400">${meta.desc}</p>
@@ -809,21 +996,57 @@ function renderPanAccounts(accounts) {
           <div class="flex justify-between"><span>可用容量:</span> <strong class="text-indigo-600">${acc.freeQuota || '0 GB'}</strong></div>
           <div class="flex justify-between truncate" title="${acc.cookiesMasked}"><span>Cookie状态:</span> <span>${acc.cookiesMasked}</span></div>
         </div>
+        ${healthTip}
 
         <div class="flex items-center gap-2 pt-1">
-          <button onclick="startPanQrLogin('${acc.panType}', '${meta.name}')" class="flex-1 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-1.5">
+          <button onclick="startPanQrLogin('${acc.panType}', '${meta.name}')" class="flex-1 py-2 ${isActive && health && health.state === 'invalid' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-brand-600 hover:bg-brand-700'} text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-1.5">
             <i data-lucide="qr-code" class="w-4 h-4"></i>
-            <span>${isActive ? '重新扫码授权' : '立即扫码登录'}</span>
+            <span>${isActive && health && health.state === 'invalid' ? '重新扫码授权（当前已失效）' : (isActive ? '重新扫码授权' : '立即扫码登录')}</span>
           </button>
           <button onclick="promptManualCookie('${acc.panType}')" class="px-3 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-medium transition">
             手动填Cookie
           </button>
+          ${isActive ? `
+          <button onclick="diagnosePanAuth('${acc.panType}')" title="检测 Cookie 完整性、API 可用性与播放地址回源是否放行"
+                  class="px-3 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-medium transition">
+            链路诊断
+          </button>` : ''}
         </div>
+        ${panDiagResult[acc.panType] ? `
+        <div class="mt-2 text-[11px] rounded-lg px-2.5 py-2 leading-relaxed border ${panDiagResult[acc.panType].ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'}">
+          <div class="font-bold mb-0.5">${panDiagResult[acc.panType].ok ? '✅ 链路诊断通过' : '⚠️ 链路诊断发现问题'}</div>
+          <div>Cookie 键：${escapeHtml(panDiagResult[acc.panType].cookieKeys)}</div>
+          <div>API 可用：${panDiagResult[acc.panType].apiOk ? '是' : '否'} · 播放地址：${panDiagResult[acc.panType].playOk ? '可取' : '取不到'} · 回源：${panDiagResult[acc.panType].streamOk ? '正常' : '被拒绝'}</div>
+          ${panDiagResult[acc.panType].hint ? `<div class="mt-1">${escapeHtml(panDiagResult[acc.panType].hint)}</div>` : ''}
+        </div>` : ''}
       </div>
     `;
   }).join('');
 
   initIcons();
+}
+
+// 网盘授权与播放链路诊断
+async function diagnosePanAuth(panType) {
+  panDiagResult[panType] = null;
+  renderPanAccounts(allPanAccounts || []);
+  try {
+    const res = await fetch(`/api/pan/diagnose?panType=${encodeURIComponent(panType)}`, {
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+    });
+    const d = await res.json();
+    panDiagResult[panType] = {
+      ok: Boolean(d.success && d.apiOk && d.playOk && d.streamOk),
+      cookieKeys: (d.cookieKeys || []).join(', ') || '—',
+      apiOk: Boolean(d.apiOk),
+      playOk: Boolean(d.playOk),
+      streamOk: Boolean(d.streamOk),
+      hint: d.hint || d.message || ''
+    };
+  } catch (e) {
+    panDiagResult[panType] = { ok: false, cookieKeys: '—', hint: '诊断请求失败：' + e.message };
+  }
+  renderPanAccounts(allPanAccounts || []);
 }
 
 async function startPanQrLogin(panType, panName) {
@@ -1024,6 +1247,9 @@ function renderCategoryTree(treeNodes, depth = 0) {
   treeNodes.forEach(node => {
     const hasChildren = node.children && node.children.length > 0;
     const paddingLeft = depth * 28;
+    const direct = node.resourceCount || 0;
+    const total = node.totalResourceCount || 0;
+    const binding = node.panBinding;
 
     const row = document.createElement('div');
     row.className = 'border border-slate-100 rounded-xl p-3.5 hover:bg-slate-50 transition flex items-center justify-between gap-3 bg-white shadow-xs';
@@ -1034,17 +1260,25 @@ function renderCategoryTree(treeNodes, depth = 0) {
         <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg border border-slate-200" style="background-color: ${node.bgColor || '#EEF2FF'}">
           ${node.emoji || '📁'}
         </div>
-        <div>
-          <div class="flex items-center gap-2">
-            <h4 class="font-bold text-slate-900 text-sm truncate">${node.name}</h4>
-            <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">${node.gradeLevel || '全年龄'}</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 text-brand-600 font-bold">${node.resourceCount || 0} 资源</span>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h4 class="font-bold text-slate-900 text-sm truncate">${escapeHtml(node.name)}</h4>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">${escapeHtml(node.gradeLevel || '全年龄')}</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 text-brand-600 font-bold" title="本级资源数">${direct} 资源</span>
+            ${total !== direct ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold" title="含所有子目录累计">含子目录 ${total}</span>` : ''}
+            ${hasChildren ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-bold">${node.children.length} 个子目录</span>` : ''}
+            ${binding
+              ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-bold" title="${escapeHtml('网盘映射：' + (binding.panName || binding.panType) + ' ' + (binding.dirPath || binding.dirId))}">🔗 ${escapeHtml(PAN_LABEL[binding.panType] || binding.panType)}:${escapeHtml(binding.dirPath || binding.dirId)}</span>`
+              : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-50 text-slate-400 font-medium">未映射网盘目录</span>`}
           </div>
-          <p class="text-xs text-slate-400 truncate max-w-md">${node.description || '暂无描述'}</p>
+          <p class="text-xs text-slate-400 truncate max-w-md">${escapeHtml(node.description || '暂无描述')}</p>
         </div>
       </div>
 
       <div class="flex items-center gap-1 flex-shrink-0">
+        <button onclick="viewCategoryResources('${node.id}')" class="px-2.5 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded-lg font-semibold transition">
+          查看内容
+        </button>
         <button onclick="openCategoryModal('${node.id}')" class="px-2.5 py-1 text-xs text-brand-600 hover:bg-brand-50 rounded-lg font-semibold transition">
           + 加子目录
         </button>
@@ -1067,18 +1301,260 @@ function renderCategoryTree(treeNodes, depth = 0) {
   initIcons();
 }
 
+// 从目录树直接跳到「学习资源库」查看该目录（含子目录）里的内容
+function viewCategoryResources(catId) {
+  switchTab('resources');
+  setTimeout(() => {
+    const sel = document.getElementById('resFilterCategory');
+    if (sel) sel.value = catId;
+    selectResourceDir(catId);
+  }, 150);
+}
+
 function populateCategorySelectors() {
   const filterCat = document.getElementById('resFilterCategory');
   const formCat = document.getElementById('resFormCategoryId');
   const parentCat = document.getElementById('catFormParentId');
 
-  const optionsHtml = allCategories.map(c => `
-    <option value="${c.id}">${c.emoji} ${c.name} (${c.gradeLevel || '全阶段'})</option>
-  `).join('');
+  const optionsHtml = buildCategoryOptions(allCategories);
 
   if (filterCat) filterCat.innerHTML = `<option value="">全部目录</option>` + optionsHtml;
   if (formCat) formCat.innerHTML = optionsHtml;
   if (parentCat) parentCat.innerHTML = `<option value="">[无父级] 作为顶级一级大模块</option>` + optionsHtml;
+
+  renderResourceDirTree();
+}
+
+// ==================== 学习资源库：目录内容浏览树 ====================
+let currentResourceDirId = '';
+
+// 由扁平分类列表构建树
+function buildCategoryTreeFromFlat(list, parentId = null) {
+  return list
+    .filter(c => (c.parentId || null) === parentId)
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+    .map(c => ({ ...c, children: buildCategoryTreeFromFlat(list, c.id) }));
+}
+
+function renderResourceDirTree() {
+  const box = document.getElementById('resDirTree');
+  if (!box) return;
+  const tree = buildCategoryTreeFromFlat(allCategories);
+  if (!tree.length) {
+    box.innerHTML = '<div class="p-3 text-slate-400 text-center">暂无目录</div>';
+    return;
+  }
+
+  const renderNode = (node, depth) => {
+    const direct = node.resourceCount || 0;
+    const total = node.totalResourceCount || 0;
+    const active = currentResourceDirId === node.id;
+    const hasChildren = node.children && node.children.length > 0;
+    const binding = node.panBinding;
+
+    const self = `
+      <div onclick="selectResourceDir('${node.id}')"
+           class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition ${active ? 'bg-brand-50 text-brand-700 font-bold' : 'hover:bg-slate-50 text-slate-700'}"
+           style="padding-left:${8 + depth * 14}px">
+        <span class="text-sm leading-none">${node.emoji || '📁'}</span>
+        <span class="truncate flex-1">${escapeHtml(node.name)}</span>
+        ${binding ? `<span class="text-[9px] text-amber-600" title="已映射 ${escapeHtml(binding.panName || binding.panType)} ${escapeHtml(binding.dirPath || binding.dirId)}">🔗</span>` : ''}
+        <span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold ${total > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}"
+              title="本级 ${direct} 个 / 含子目录 ${total} 个">${total}</span>
+      </div>`;
+
+    const kids = hasChildren ? node.children.map(c => renderNode(c, depth + 1)).join('') : '';
+    return self + kids;
+  };
+
+  box.innerHTML = tree.map(n => renderNode(n, 0)).join('');
+}
+
+// 选中某目录 → 展示该目录（含子目录）的资源内容
+async function selectResourceDir(catId) {
+  currentResourceDirId = catId || '';
+  const sel = document.getElementById('resFilterCategory');
+  if (sel && sel.value !== currentResourceDirId) sel.value = currentResourceDirId;
+
+  renderResourceDirTree();
+  await loadResources();
+
+  const summary = document.getElementById('resDirSummary');
+  if (!summary) return;
+
+  if (!currentResourceDirId) {
+    summary.innerHTML = `共 ${allResources.length} 个资源（全部目录）`;
+    return;
+  }
+
+  const cat = allCategories.find(c => c.id === currentResourceDirId);
+  summary.innerHTML = `<span class="inline-block animate-spin">⏳</span> 正在统计「${escapeHtml(cat ? cat.name : '')}」...`;
+  try {
+    const res = await fetch(`/api/categories/${currentResourceDirId}/resources`, {
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+    });
+    const d = await res.json();
+    if (!d.success) { summary.innerText = d.message || '统计失败'; return; }
+    const parts = (d.breakdown || [])
+      .filter(b => b.count > 0 || b.isSelf)
+      .map(b => `${b.emoji}${escapeHtml(b.name)} <strong class="text-slate-700">${b.count}</strong>`)
+      .join(' · ');
+    const bind = d.category && d.category.panBinding
+      ? `<div class="mt-1 text-amber-700">🔗 已映射：${escapeHtml(d.category.panBinding.panName || d.category.panBinding.panType)} ${escapeHtml(d.category.panBinding.dirPath || d.category.panBinding.dirId)}</div>`
+      : `<div class="mt-1 text-slate-400">未映射网盘目录（可在目录管理中绑定）</div>`;
+    const browseBtn = (d.category && d.category.panBinding && d.category.panBinding.panType)
+      ? `<button onclick="openPanBrowser('${currentResourceDirId}')"
+                 class="mt-2 w-full py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold text-[11px] flex items-center justify-center gap-1">
+           <i data-lucide="folder-search" class="w-3.5 h-3.5"></i><span>浏览网盘目录内容并导入</span>
+         </button>`
+      : '';
+    summary.innerHTML = `<div>📂 共 <strong class="text-slate-700">${d.total}</strong> 个资源（含子目录）</div><div class="mt-1 leading-relaxed">${parts || '暂无内容'}</div>${bind}${browseBtn}`;
+    if (typeof initIcons === 'function') initIcons();
+  } catch (e) {
+    summary.innerText = '统计失败：' + e.message;
+  }
+}
+
+// ==================== 网盘目录内容浏览与导入 ====================
+// 说明：转存到网盘的文件，通过本模块逐级浏览并「导入为资源」，
+//       资源 url 指向 /api/pan/stream（服务端自动选择转码播放地址或直链），
+//       儿童端即可一级级点开目录直接播放。
+let panBrowseState = { catId: '', panType: '', stack: [] };
+
+async function openPanBrowser(catId) {
+  const cat = allCategories.find(c => c.id === catId);
+  const b = cat && cat.panBinding;
+  if (!b || !b.panType || !b.dirId) {
+    alert('该目录尚未映射网盘目录，请先在「目录管理」中绑定网盘目录');
+    return;
+  }
+  panBrowseState = {
+    catId,
+    panType: b.panType,
+    stack: [{ id: b.dirId, name: b.dirPath || `[${b.panName || b.panType}]根目录` }]
+  };
+  document.getElementById('panBrowserModal').classList.remove('hidden');
+  if (typeof initIcons === 'function') initIcons();
+  await renderPanBrowser();
+}
+
+async function panBrowseInto(dirId, dirName) {
+  panBrowseState.stack.push({ id: dirId, name: dirName });
+  await renderPanBrowser();
+}
+
+async function panBrowseUp() {
+  if (panBrowseState.stack.length > 1) {
+    panBrowseState.stack.pop();
+    await renderPanBrowser();
+  }
+}
+
+async function renderPanBrowser() {
+  const body = document.getElementById('panBrowserBody');
+  const pathEl = document.getElementById('panBrowserPath');
+  const statEl = document.getElementById('panBrowserStat');
+  if (!body) return;
+
+  const cur = panBrowseState.stack[panBrowseState.stack.length - 1];
+  const trail = panBrowseState.stack.map(s => escapeHtml(s.name)).join(' / ');
+  pathEl.innerHTML = `📁 ${trail}`;
+  body.innerHTML = '<div class="p-6 text-center text-slate-400"><span class="inline-block animate-spin">⏳</span> 正在读取网盘目录...</div>';
+
+  try {
+    const res = await fetch(
+      `/api/pan/files?panType=${encodeURIComponent(panBrowseState.panType)}&dirId=${encodeURIComponent(cur.id)}`,
+      { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') } }
+    );
+    const d = await res.json();
+    if (!d.success) {
+      body.innerHTML = `<div class="p-6 text-center text-rose-500">${escapeHtml(d.message || '读取失败')}</div>`;
+      statEl.innerText = '';
+      return;
+    }
+
+    const items = d.items || [];
+    if (!items.length) {
+      body.innerHTML = '<div class="p-6 text-center text-slate-400">该目录为空</div>';
+      statEl.innerText = '0 项';
+      return;
+    }
+
+    // 目录在前，文件在后
+    const dirs = items.filter(i => i.isDir);
+    const files = items.filter(i => !i.isDir);
+
+    const rowDir = (it) => `
+      <div onclick="panBrowseInto('${it.id}','${escapeHtml(it.name).replace(/'/g, '&#39;')}')"
+           class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer hover:bg-slate-50 border border-transparent hover:border-slate-200">
+        <span class="text-base leading-none">📁</span>
+        <span class="flex-1 truncate text-slate-700 font-medium">${escapeHtml(it.name)}</span>
+        <span class="text-[10px] text-slate-400">进入 ›</span>
+      </div>`;
+
+    const rowFile = (it) => {
+      const icon = it.type === 'video' ? '🎬' : it.type === 'audio' ? '🎧' : it.type === 'pdf' ? '📄' : '📦';
+      const typeLabel = { video: '视频', audio: '音频', pdf: 'PDF', file: '文件' }[it.type] || '文件';
+      return `
+      <div class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
+        <span class="text-base leading-none">${icon}</span>
+        <div class="flex-1 min-w-0">
+          <div class="truncate text-slate-700">${escapeHtml(it.name)}</div>
+          <div class="text-[10px] text-slate-400">${typeLabel}${it.sizeText ? ' · ' + it.sizeText : ''}</div>
+        </div>
+        ${it.playable
+          ? `<button onclick="importPanFile('${escapeHtml(it.name).replace(/'/g, '&#39;')}','${it.id}','${it.type}','${escapeHtml(it.sizeText || '')}')"
+                     class="shrink-0 px-2.5 py-1 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-[10px] font-semibold">导入为资源</button>`
+          : `<span class="shrink-0 text-[10px] text-slate-300">不支持播放</span>`}
+      </div>`;
+    };
+
+    body.innerHTML =
+      dirs.map(rowDir).join('') + files.map(rowFile).join('');
+    statEl.innerText = `${dirs.length} 个文件夹 · ${files.length} 个文件`;
+  } catch (e) {
+    body.innerHTML = `<div class="p-6 text-center text-rose-500">读取失败：${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// 把网盘文件导入为学习资源（挂到当前浏览的目录树节点下）
+async function importPanFile(name, fid, type, sizeText) {
+  const catId = panBrowseState.catId;
+  if (!catId) { alert('请先选择目标目录'); return; }
+  const rType = type === 'file' ? 'video' : type;
+  const streamUrl = `/api/pan/stream?panType=${encodeURIComponent(panBrowseState.panType)}&fid=${encodeURIComponent(fid)}`;
+
+  try {
+    const res = await fetch('/api/resources', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+      },
+      body: JSON.stringify({
+        title: name,
+        categoryId: catId,
+        type: rType,
+        url: streamUrl,
+        size: sizeText || '未知大小',
+        duration: rType === 'pdf' ? '文档' : '—',
+        description: `网盘直连资源（${panBrowseState.panType}），支持在线播放与息屏磨耳朵。`,
+        tags: ['网盘直连', panBrowseState.panType],
+        panSource: panBrowseState.panType,
+        speedupSupport: true
+      })
+    });
+    const d = await res.json();
+    if (d.success) {
+      alert(`已导入：${name}\n儿童端进入该目录即可直接播放`);
+      await loadResources();
+      await renderResourceDirTree();
+    } else {
+      alert('导入失败：' + (d.message || '未知错误'));
+    }
+  } catch (e) {
+    alert('导入失败：' + e.message);
+  }
 }
 
 function openCategoryModal(parentId = null) {
@@ -1089,6 +1565,7 @@ function openCategoryModal(parentId = null) {
   document.getElementById('catFormGrade').value = '全年龄段';
   document.getElementById('catFormSort').value = '1';
   document.getElementById('catFormDesc').value = '';
+  clearCategoryPanBinding();
   document.getElementById('categoryModalTitle').innerText = parentId ? '添加子目录' : '新建目录';
   document.getElementById('categoryModal').classList.remove('hidden');
 }
@@ -1103,6 +1580,20 @@ function editCategory(id) {
   document.getElementById('catFormGrade').value = cat.gradeLevel || '全年龄段';
   document.getElementById('catFormSort').value = cat.sortOrder || 1;
   document.getElementById('catFormDesc').value = cat.description || '';
+
+  // 回显网盘目录映射
+  clearCategoryPanBinding();
+  if (cat.panBinding && cat.panBinding.panType && cat.panBinding.dirId) {
+    document.getElementById('catFormPanType').value = cat.panBinding.panType;
+    document.getElementById('catFormPanDirId').value = cat.panBinding.dirId;
+    document.getElementById('catFormPanDirPath').value = cat.panBinding.dirPath || '';
+    const box = document.getElementById('catFormPanDirBox');
+    if (box) {
+      box.classList.remove('hidden');
+      box.innerHTML = `🔗 已绑定 ${escapeHtml(cat.panBinding.panName || PAN_LABEL[cat.panBinding.panType] || cat.panBinding.panType)}：<strong>${escapeHtml(cat.panBinding.dirPath || cat.panBinding.dirId)}</strong>`;
+    }
+  }
+
   document.getElementById('categoryModalTitle').innerText = '编辑目录：' + cat.name;
   document.getElementById('categoryModal').classList.remove('hidden');
 }
@@ -1112,13 +1603,21 @@ async function saveCategory() {
   const name = document.getElementById('catFormName').value.trim();
   if (!name) return alert('请输入目录名称');
 
+  const panType = document.getElementById('catFormPanType').value;
+  const panDirId = document.getElementById('catFormPanDirId').value;
+  const panDirPath = document.getElementById('catFormPanDirPath').value;
+  const panBinding = (panType && panDirId)
+    ? { panType, panName: PAN_LABEL[panType] || panType, dirId: panDirId, dirPath: panDirPath }
+    : null;
+
   const payload = {
     name,
     parentId: document.getElementById('catFormParentId').value || null,
     emoji: document.getElementById('catFormEmoji').value,
     gradeLevel: document.getElementById('catFormGrade').value,
     sortOrder: Number(document.getElementById('catFormSort').value),
-    description: document.getElementById('catFormDesc').value
+    description: document.getElementById('catFormDesc').value,
+    panBinding
   };
 
   const url = id ? `/api/categories/${id}` : '/api/categories';
@@ -1175,6 +1674,9 @@ async function loadResources() {
     allResources = data.items || [];
     renderResourcesTable(allResources);
     document.getElementById('badgeResCount').innerText = allResources.length;
+    // 同步侧栏选中态
+    currentResourceDirId = catId;
+    renderResourceDirTree();
   } catch (e) {
     console.error('Load resources failed:', e);
   }
@@ -1482,8 +1984,8 @@ function playResource(id) {
   `;
 
   const container = document.getElementById('playerMediaContainer');
-  // 通过非会员加速直链代理接口播放
-  const proxyPlayUrl = `/api/stream/play?url=${encodeURIComponent(r.url)}&speedup=true`;
+  // 通过非会员加速直链代理接口播放（本地流/已代理地址自动复用，避免二次包装）
+  const proxyPlayUrl = resolveStreamUrl(r.url, 'play');
 
   if (r.type === 'video') {
     container.innerHTML = `
@@ -1503,7 +2005,7 @@ function playResource(id) {
       </div>
     `;
   } else if (r.type === 'pdf') {
-    const pdfUrl = `/api/stream/pdf?url=${encodeURIComponent(r.url)}`;
+    const pdfUrl = resolveStreamUrl(r.url, 'pdf');
     container.innerHTML = `
       <iframe src="${pdfUrl}" class="w-full h-[500px] border-0 rounded-xl bg-white"></iframe>
     `;
@@ -1523,7 +2025,7 @@ function changePlaybackRate(rate) {
 
 function toggleAudioOnlyMode() {
   if (!currentPlayerResource) return;
-  const audioExtractUrl = `/api/stream/audio-extract?url=${encodeURIComponent(currentPlayerResource.url)}`;
+  const audioExtractUrl = resolveStreamUrl(currentPlayerResource.url, 'audio');
   const container = document.getElementById('playerMediaContainer');
   container.innerHTML = `
     <div class="p-8 text-center text-white space-y-4">
