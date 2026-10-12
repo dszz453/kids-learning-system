@@ -10,13 +10,162 @@ let currentPlaybackRate = 1.0;
 
 // 全局音频/视频播放器元素引用
 let activeMediaEl = null;
+// 当前登录的小朋友用户
+let currentKidUser = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initIcons();
-  loadKidsCategories();
-  loadKidsResources();
   setupMediaSessionHandlers();
+  initKidAuth(); // 优先进行账号登录校验
 });
+
+// ==================== 0. 儿童端账号登录与权限控制 ====================
+function getKidToken() {
+  return localStorage.getItem('kidToken') || localStorage.getItem('token') || '';
+}
+
+async function initKidAuth() {
+  const token = getKidToken();
+  if (!token) {
+    showKidLoginModal(false);
+    return;
+  }
+  try {
+    const res = await fetch('/api/auth/me', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    if (data.success && data.user) {
+      currentKidUser = data.user;
+      hideKidLoginModal();
+      applyKidUserProfile();
+      loadKidsCategories();
+      loadKidsResources();
+    } else {
+      localStorage.removeItem('kidToken');
+      showKidLoginModal(false);
+    }
+  } catch (err) {
+    console.warn('儿童端身份校验异常:', err);
+    showKidLoginModal(false);
+  }
+}
+
+function applyKidUserProfile() {
+  const greet = document.getElementById('kidGreetingText');
+  if (greet && currentKidUser) {
+    const name = currentKidUser.nickname || currentKidUser.username;
+    const grade = currentKidUser.grade || '';
+    // 昵称中已包含年级或括号说明时不再重复追加
+    const needGrade = grade && !name.includes(grade) && !/[（(]/.test(name);
+    greet.innerText = needGrade ? `${name} (${grade})` : name;
+  }
+  // 更新 AI 聊天欢迎语中的称呼
+  const welcome = document.getElementById('aiWelcomeName');
+  if (welcome && currentKidUser) {
+    welcome.innerText = currentKidUser.nickname || currentKidUser.username;
+  }
+}
+
+function showKidLoginModal(isSwitching) {
+  const modal = document.getElementById('kidLoginModal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  const errBox = document.getElementById('kidLoginErrorMsg');
+  if (errBox) errBox.classList.add('hidden');
+  const logoutBtn = document.getElementById('btnKidLogoutInline');
+  if (logoutBtn) {
+    if (isSwitching && currentKidUser) {
+      logoutBtn.classList.remove('hidden');
+    } else {
+      logoutBtn.classList.add('hidden');
+    }
+  }
+  initIcons();
+}
+
+function hideKidLoginModal() {
+  const modal = document.getElementById('kidLoginModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function openKidLoginModal() {
+  showKidLoginModal(true);
+}
+
+function fillKidCredentials(username, password) {
+  const uInput = document.getElementById('kidLoginUsername');
+  const pInput = document.getElementById('kidLoginPassword');
+  if (uInput) uInput.value = username;
+  if (pInput) pInput.value = password;
+}
+
+async function handleKidLogin() {
+  const username = (document.getElementById('kidLoginUsername').value || '').trim();
+  const password = (document.getElementById('kidLoginPassword').value || '').trim();
+  const errBox = document.getElementById('kidLoginErrorMsg');
+  const btn = document.getElementById('btnKidLoginSubmit');
+
+  if (!username || !password) {
+    if (errBox) {
+      errBox.innerText = '请输入小朋友账号和密码哦～';
+      errBox.classList.remove('hidden');
+    }
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="inline-block animate-spin">⌛</span><span>正在进入乐园...</span>`;
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.success && data.token) {
+      localStorage.setItem('kidToken', data.token);
+      currentKidUser = data.user;
+      hideKidLoginModal();
+      applyKidUserProfile();
+      loadKidsCategories();
+      loadKidsResources();
+    } else {
+      if (errBox) {
+        errBox.innerText = data.message || '账号或密码不正确，请再试一次～';
+        errBox.classList.remove('hidden');
+      }
+    }
+  } catch (err) {
+    if (errBox) {
+      errBox.innerText = '网络开小差了: ' + err.message;
+      errBox.classList.remove('hidden');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="rocket" class="w-4 h-4"></i><span>开 始 学 习</span>`;
+    initIcons();
+  }
+}
+
+function handleKidLogout() {
+  if (!confirm('确定要退出当前小朋友的账号吗？')) return;
+  localStorage.removeItem('kidToken');
+  currentKidUser = null;
+  const uInput = document.getElementById('kidLoginUsername');
+  const pInput = document.getElementById('kidLoginPassword');
+  if (uInput) uInput.value = '';
+  if (pInput) pInput.value = '';
+  const greet = document.getElementById('kidGreetingText');
+  if (greet) greet.innerText = '请先登录';
+  // 清空当前展示内容
+  const grid = document.getElementById('primaryModulesGrid');
+  if (grid) grid.innerHTML = '';
+  const resContainer = document.getElementById('kidsResourcesContainer');
+  if (resContainer) resContainer.innerHTML = '';
+  showKidLoginModal(false);
+}
 
 function initIcons() {
   if (window.lucide) {
@@ -27,10 +176,38 @@ function initIcons() {
 // ==================== 1. 分类目录与层级浏览 (与后台资源树严格对照) ====================
 async function loadKidsCategories() {
   try {
-    const res = await fetch('/api/categories/tree');
+    const token = getKidToken();
+    const res = await fetch('/api/categories/tree', {
+      headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+    });
     const data = await res.json();
     categoriesTree = data.tree || [];
     allCategoriesList = data.list || [];
+
+    // 按当前用户权限过滤可见目录
+    if (currentKidUser && Array.isArray(currentKidUser.allowedCategoryIds)
+        && !currentKidUser.allowedCategoryIds.includes('*')) {
+      const allowed = new Set(currentKidUser.allowedCategoryIds);
+      // 收集允许的一级目录及其所有子孙目录 id
+      const allowedSet = new Set();
+      const collectDescendants = (node) => {
+        if (allowed.has(node.id)) {
+          const walk = (n) => { allowedSet.add(n.id); (n.children || []).forEach(walk); };
+          walk(node);
+        } else {
+          (node.children || []).forEach(collectDescendants);
+        }
+      };
+      categoriesTree.forEach(collectDescendants);
+
+      const filterTree = (nodes) => nodes
+        .filter(n => allowedSet.has(n.id))
+        .map(n => ({ ...n, children: filterTree(n.children || []) }));
+
+      categoriesTree = filterTree(categoriesTree);
+      allCategoriesList = allCategoriesList.filter(c => allowedSet.has(c.id));
+    }
+
     renderPrimaryModules();
   } catch (err) {
     console.error('加载分类目录失败:', err);
@@ -146,6 +323,14 @@ async function loadKidsResources(categoryId = null, keyword = '') {
     const res = await fetch(url);
     const data = await res.json();
     allResourcesList = data.items || [];
+
+    // 按当前用户目录权限做二次过滤，确保孩子只能看到授权目录下的资源
+    if (currentKidUser && Array.isArray(currentKidUser.allowedCategoryIds)
+        && !currentKidUser.allowedCategoryIds.includes('*')) {
+      const visibleIds = new Set(allCategoriesList.map(c => c.id));
+      allResourcesList = allResourcesList.filter(r => visibleIds.has(r.categoryId));
+    }
+
     renderKidsResources(allResourcesList);
   } catch (err) {
     container.innerHTML = `<div class="p-6 text-center text-rose-500 text-xs">加载失败：${err.message}</div>`;

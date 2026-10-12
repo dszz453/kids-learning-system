@@ -53,7 +53,7 @@
         </div>
       </div>
 
-      <!-- 右侧快捷跳转与用户信息 -->
+      <!-- 右侧快捷跳转与用户信息/登录控制 -->
       <div class="flex items-center gap-3">
         <a href="/kids" target="_blank" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition border border-emerald-200">
           <i data-lucide="smartphone" class="w-4 h-4"></i>
@@ -62,12 +62,28 @@
 
         <div class="h-6 w-px bg-slate-200 mx-1"></div>
 
-        <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-sm font-bold border border-slate-300">
-            A
+        <!-- 管理员登录状态与操作区 -->
+        <div id="adminUserArea" class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold border border-brand-200" id="topAdminAvatar">
+            管
           </div>
-          <span class="text-xs font-medium text-slate-700 hidden sm:inline" id="topAdminName">管理员 (admin)</span>
+          <div class="flex flex-col text-left">
+            <span class="text-xs font-bold text-slate-800 leading-tight" id="topAdminName">管理员 (admin)</span>
+            <span class="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>已鉴权
+            </span>
+          </div>
+          <button onclick="handleAdminLogout()" title="切换账号或退出当前管理员登录" class="ml-1 px-2.5 py-1.5 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition flex items-center gap-1 border border-slate-200">
+            <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+            <span class="hidden sm:inline">退出登录</span>
+          </button>
         </div>
+
+        <!-- 未登录状态备用按钮 -->
+        <button id="btnLoginTrigger" onclick="openLoginModal()" class="hidden px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
+          <i data-lucide="log-in" class="w-3.5 h-3.5"></i>
+          <span>登录管理后台</span>
+        </button>
       </div>
     </div>
   </header>
@@ -158,33 +174,98 @@
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-            <div class="md:col-span-6 relative">
+            <div class="md:col-span-5 relative">
               <label class="block text-[11px] font-bold text-slate-600 mb-1">Pansou 运行服务地址 (URL)</label>
               <div class="relative">
-                <input type="text" id="pansouApiUrlInput" placeholder="http://192.168.31.180:8080 或 http://localhost:8080" 
+                <input type="text" id="pansouApiUrlInput" placeholder="如: https://pansou.19860819.xyz:8616" 
                        class="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono bg-white">
                 <i data-lucide="link" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
               </div>
             </div>
 
+            <div class="md:col-span-3">
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">基础认证 / Token (如 admin:Hik297360+)</label>
+              <input type="text" id="pansouAuthInput" placeholder="用户名:密码 或 Bearer Token"
+                     class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono bg-white">
+            </div>
+
             <div class="md:col-span-2">
-              <label class="block text-[11px] font-bold text-slate-600 mb-1">请求超时时间 (ms)</label>
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">超时时间 (ms)</label>
               <input type="number" id="pansouTimeoutInput" value="8000" step="500"
                      class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono bg-white">
             </div>
 
-            <div class="md:col-span-4 flex items-end gap-2 pt-5">
-              <button onclick="testPansouConnection()" id="btnTestPansou" class="flex-1 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5">
+            <div class="md:col-span-2 flex items-end gap-1.5 pt-5">
+              <button onclick="testPansouConnection()" id="btnTestPansou" class="flex-1 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1">
                 <i data-lucide="activity" class="w-3.5 h-3.5"></i>
-                <span>测试连通性</span>
+                <span>测试</span>
               </button>
-              <button onclick="savePansouConfig()" id="btnSavePansou" class="flex-1 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-1.5">
+              <button onclick="savePansouConfig()" id="btnSavePansou" class="flex-1 py-2 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-1">
                 <i data-lucide="save" class="w-3.5 h-3.5"></i>
-                <span>保存配置</span>
+                <span>保存</span>
               </button>
             </div>
           </div>
           <div id="pansouTestResultBox" class="hidden text-xs p-2.5 rounded-xl border"></div>
+        </div>
+
+        <!-- PanCheck 外部探针服务端点配置卡片 -->
+        <div class="bg-gradient-to-r from-emerald-50/80 via-teal-50/80 to-cyan-50/80 p-5 rounded-2xl border border-emerald-100/80 shadow-sm space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <span class="p-2 bg-emerald-600 text-white rounded-xl shadow-sm shadow-emerald-500/30">
+                <i data-lucide="shield-check" class="w-4 h-4"></i>
+              </span>
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <span>PanCheck 外部探针服务配置</span>
+                  <span id="pancheckStatusBadge" class="text-[11px] px-2 py-0.5 rounded-full font-bold bg-slate-200 text-slate-700">加载中...</span>
+                </h3>
+                <p class="text-xs text-slate-500">配置独立的 PanCheck 存活检测服务，对夸克/百度/UC/天翼分享链接做真实有效性验证；未开启或异常时自动降级至内置探针</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer bg-white/80 px-3 py-1.5 rounded-xl border border-emerald-200">
+                <input type="checkbox" id="pancheckEnabledCheckbox" class="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4">
+                <span>启用外部 PanCheck 检测</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+            <div class="md:col-span-5">
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">PanCheck 运行服务地址 (URL)</label>
+              <div class="relative">
+                <input type="text" id="pancheckApiUrlInput" placeholder="如: https://pancheck.19860819.xyz:8616"
+                       class="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono bg-white">
+                <i data-lucide="link" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5"></i>
+              </div>
+            </div>
+
+            <div class="md:col-span-3">
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">管理密码 (Admin Password)</label>
+              <input type="text" id="pancheckPasswordInput" placeholder="PanCheck 管理密码"
+                     class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono bg-white">
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-[11px] font-bold text-slate-600 mb-1">超时时间 (ms)</label>
+              <input type="number" id="pancheckTimeoutInput" value="15000" step="1000"
+                     class="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono bg-white">
+            </div>
+
+            <div class="md:col-span-2 flex items-end gap-1.5 pt-5">
+              <button onclick="testPancheckConnection()" id="btnTestPancheck" class="flex-1 py-2 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1">
+                <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+                <span>测试</span>
+              </button>
+              <button onclick="savePancheckConfig()" id="btnSavePancheck" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-1">
+                <i data-lucide="save" class="w-3.5 h-3.5"></i>
+                <span>保存</span>
+              </button>
+            </div>
+          </div>
+          <div id="pancheckTestResultBox" class="hidden text-xs p-2.5 rounded-xl border"></div>
         </div>
 
         <!-- 顶部搜索条 -->
@@ -979,6 +1060,51 @@
         <button onclick="saveManualCookie()" id="btnSaveCookie" class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow flex items-center gap-1.5">
           <i data-lucide="save" class="w-4 h-4"></i>
           <span>保存 Cookie 到系统</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 模态框 6：管理员登录 / 切换账号弹窗 ==================== -->
+  <div id="adminLoginModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center hidden p-4">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 text-center space-y-4 animate-scaleUp">
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 via-indigo-600 to-purple-600 text-white flex items-center justify-center text-3xl mx-auto shadow-xl shadow-brand-500/30">
+        🎓
+      </div>
+      <div>
+        <h3 class="text-lg font-bold text-slate-900">少儿智能学习系统 · 管理控制台</h3>
+        <p class="text-xs text-slate-500 mt-1">请输入管理员账号和密码以进入控制中心</p>
+      </div>
+
+      <div class="space-y-3.5 text-left">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">管理员账号</label>
+          <div class="relative">
+            <input type="text" id="loginAdminUsername" value="admin" placeholder="输入管理员用户名 (默认: admin)" 
+                   class="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-brand-500 font-medium">
+            <i data-lucide="user" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">登录密码</label>
+          <div class="relative">
+            <input type="password" id="loginAdminPassword" value="admin123" placeholder="输入密码 (默认: admin123)" 
+                   class="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-brand-500 font-medium">
+            <i data-lucide="lock" class="w-4 h-4 text-slate-400 absolute left-3 top-3"></i>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+          <span>初始默认凭据：<strong class="text-brand-600">admin / admin123</strong></span>
+          <button type="button" onclick="fillDefaultAdminCredentials()" class="text-brand-600 hover:underline font-semibold">一键填入</button>
+        </div>
+
+        <div id="loginErrorMsg" class="hidden text-xs text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-200"></div>
+
+        <button onclick="handleAdminLogin()" id="btnAdminLoginSubmit" class="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow-md shadow-brand-500/25 transition flex items-center justify-center gap-2">
+          <i data-lucide="log-in" class="w-4 h-4"></i>
+          <span>登 录 管 理 后 台</span>
         </button>
       </div>
     </div>

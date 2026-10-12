@@ -20,6 +20,136 @@ class PanCheckService {
   }
 
   /**
+   * 通过配置的外部 PanCheck 服务进行真实链接检测
+   * 对接 PanCheck 标准 API:
+   *   POST /api/v1/links/check        body: { links: [url] }   header: X-Admin-Password
+   *   GET  /api/v1/links/submissions/{id}  查询异步检测结果
+   * @returns {object|null} 标准化检测结果；若未启用或失败则返回 null（交由内置探针兜底）
+   */
+  async checkViaExternalService(shareUrl, pwd, panType) {
+    let config = {};
+    try {
+      const db = require('../database');
+      config = db.get('pancheckConfig') || {};
+    } catch (e) {
+      return null;
+    }
+
+    if (!config.enabled || !config.apiUrl) {
+      return null;
+    }
+
+    const baseUrl = String(config.apiUrl).trim().replace(/\/+$/, '');
+    const password = (config.password || '').trim();
+    const headers = { 'Content-Type': 'application/json' };
+    if (password) {
+      headers['X-Admin-Password'] = password;
+    }
+
+    const PAN_NAME_MAP = {
+      quark: '夸克网盘', baidu: '百度网盘', uc: 'UC网盘',
+      cloud189: '天翼云盘', aliyun: '阿里云盘'
+    };
+    const panName = PAN_NAME_MAP[panType] || '网盘';
+
+    const norm = (u) => String(u || '').trim().replace(/\/+$/, '').split('?')[0];
+    const target = norm(shareUrl);
+    const has = (arr) => Array.isArray(arr) && arr.some(u => norm(u) === target || norm(u).includes(target) || target.includes(norm(u)));
+
+    try {
+      // 1. 提交检测任务
+      const submitResp = await axios.post(`${baseUrl}/api/v1/links/check`, {
+        links: [shareUrl]
+      }, {
+        headers,
+        timeout: config.timeout || 15000,
+        validateStatus: () => true
+      });
+
+      if (submitResp.status >= 400) {
+        return null; // 外部服务异常，降级
+      }
+
+      let result = submitResp.data || {};
+      const submissionId = result.submission_id;
+
+      // 2. 若存在待检测项，轮询查询最终结果
+      const hasPending = Array.isArray(result.pending_links) && result.pending_links.length > 0;
+      if (hasPending && submissionId) {
+        const maxRetries = 6;
+        const intervalMs = 1500;
+        for (let i = 0; i < maxRetries; i++) {
+          await new Promise(r => setTimeout(r, intervalMs));
+          try {
+            const queryResp = await axios.get(`${baseUrl}/api/v1/links/submissions/${submissionId}`, {
+              headers,
+              timeout: 8000,
+              validateStatus: () => true
+            });
+            if (queryResp.status < 400 && queryResp.data) {
+              result = queryResp.data;
+              const stillPending = Array.isArray(result.pending_links) && result.pending_links.length > 0;
+              if (!stillPending || result.status === 'checked') break;
+            }
+          } catch (e) {
+            // 单次轮询失败忽略，继续重试
+          }
+        }
+      }
+
+      const validLinks = result.valid_links || [];
+      const invalidLinks = result.invalid_links || [];
+      const lockedLinks = result.locked_links || [];
+      const pendingLinks = result.pending_links || [];
+
+      let isAlive = true;
+      let statusText = `${panName}：资源有效，可正常转存`;
+      let hasPassword = Boolean(pwd);
+
+      if (has(invalidLinks)) {
+        isAlive = false;
+        statusText = `${panName}：资源已失效或分享被取消 (PanCheck 实测)`;
+      } else if (has(lockedLinks)) {
+        isAlive = true;
+        hasPassword = true;
+        statusText = `${panName}：资源有效但已锁定，需要提取码 (PanCheck 实测)`;
+      } else if (has(validLinks)) {
+        isAlive = true;
+        statusText = `${panName}：资源有效，实测存活 (PanCheck)`;
+      } else if (has(pendingLinks)) {
+        // 检测超时未完成，交回内置探针
+        return null;
+      } else {
+        // 未知归类，保守判定为有效
+        isAlive = true;
+        statusText = `${panName}：资源状态正常 (PanCheck 已受理)`;
+      }
+
+      return {
+        url: shareUrl,
+        panType,
+        isAlive,
+        statusText,
+        hasPassword,
+        pwd,
+        details: {
+          platform: panName,
+          source: 'PanCheck',
+          submissionId,
+          validCount: validLinks.length,
+          invalidCount: invalidLinks.length,
+          lockedCount: lockedLinks.length,
+          checkedAt: result.checked_at || new Date().toISOString()
+        },
+        checkedAt: new Date().toISOString()
+      };
+    } catch (err) {
+      console.warn(`[PanCheckService] 外部 PanCheck 服务调用失败，降级为内置探针: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
    * 综合检测网盘链接存活情况
    * @param {string} shareUrl 分享链接
    * @param {string} pwd 提取码 (可选)
@@ -38,6 +168,12 @@ class PanCheckService {
         hasPassword: false,
         checkDurationMs: Date.now() - startTime
       };
+    }
+
+    // 0. 优先尝试使用配置的外部 PanCheck 服务进行真实检测
+    const externalResult = await this.checkViaExternalService(shareUrl, pwd, panType);
+    if (externalResult) {
+      return { ...externalResult, checkDurationMs: Date.now() - startTime };
     }
 
     try {

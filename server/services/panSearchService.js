@@ -161,36 +161,36 @@ class PanSearchService {
     if (pansouConfig.enabled && pansouConfig.apiUrl && kw) {
       try {
         const cleanBaseUrl = pansouConfig.apiUrl.replace(/\/+$/, '');
-        // 按照 pansou 标准接口协议发起搜索请求: GET /api/search?keyword=... 或 /search
+        const reqHeaders = {};
+        if (pansouConfig.auth) {
+          if (pansouConfig.auth.startsWith('Bearer ')) {
+            reqHeaders['Authorization'] = pansouConfig.auth;
+          } else if (pansouConfig.auth.includes(':')) {
+            const encodedAuth = Buffer.from(pansouConfig.auth).toString('base64');
+            reqHeaders['Authorization'] = `Basic ${encodedAuth}`;
+          } else {
+            reqHeaders['Authorization'] = `Bearer ${pansouConfig.auth}`;
+          }
+        }
+
+        // 按照 pansou 标准接口协议发起搜索请求
+        // 真实 Pansou 使用 GET /api/search?kw=关键字 (同时兼容 keyword 参数名)
         const pansouResp = await axios.get(`${cleanBaseUrl}/api/search`, {
           params: {
+            kw,
             keyword: kw,
             pan: panType === 'all' ? '' : panType,
             page,
             pageSize
           },
-          timeout: pansouConfig.timeout || 6000
+          headers: reqHeaders,
+          timeout: pansouConfig.timeout || 10000
         });
 
-        if (pansouResp.data && (Array.isArray(pansouResp.data) || Array.isArray(pansouResp.data.data) || Array.isArray(pansouResp.data.items))) {
-          const rawItems = Array.isArray(pansouResp.data) ? pansouResp.data : (pansouResp.data.data || pansouResp.data.items);
-          results = rawItems.map((item, idx) => ({
-            title: item.title || item.name || `【Pansou抓取】${kw} 学习资料`,
-            panType: item.panType || item.pan || item.source || panType === 'all' ? 'quark' : panType,
-            url: item.url || item.link || '',
-            pwd: item.pwd || item.password || '',
-            size: item.size || '未知大小',
-            category: item.category || '外部抓取',
-            grade: '多学段',
-            type: item.type || '网盘资源',
-            updateTime: item.updateTime || new Date().toISOString().split('T')[0],
-            fileCount: item.fileCount || 1,
-            fromPansouApi: true
-          })).filter(i => i.url);
+        results = this.parsePansouResponse(pansouResp.data, panType, kw);
 
-          if (results.length > 0) {
-            fetchedFromPansou = true;
-          }
+        if (results.length > 0) {
+          fetchedFromPansou = true;
         }
       } catch (err) {
         console.warn(`[PanSearchService] 从外部 Pansou (${pansouConfig.apiUrl}) 抓取超时或异常，平滑降级为内置聚合索引: ${err.message}`);
@@ -239,6 +239,111 @@ class PanSearchService {
       pageSize: Number(pageSize),
       items: pagedResults
     };
+  }
+
+  /**
+   * 解析 Pansou 搜索接口返回数据
+   * 兼容两种格式：
+   *  1. 真实 Pansou 标准格式: { code:0, data:{ total, merged_by_type:{ quark:[], baidu:[], uc:[], cloud189:[], aliyun:[] } } }
+   *  2. 简易格式: 顶层数组 / data 数组 / data.items 数组
+   * @param {object} respData 接口原始返回
+   * @param {string} panType 过滤的网盘类型 ('all' 表示全部)
+   * @param {string} kw 搜索关键字
+   */
+  parsePansouResponse(respData, panType = 'all', kw = '') {
+    const PAN_NAME_MAP = {
+      quark: '夸克网盘',
+      baidu: '百度网盘',
+      uc: 'UC网盘',
+      cloud189: '天翼云盘',
+      aliyun: '阿里云盘',
+      '189': '天翼云盘',
+      '123pan': '123网盘',
+      weiyun: '腾讯微云',
+      xunlei: '迅雷网盘',
+      '115': '115网盘'
+    };
+
+    const inferPanType = (url = '') => {
+      const u = String(url).toLowerCase();
+      if (u.includes('pan.quark.cn') || u.includes('quark')) return 'quark';
+      if (u.includes('pan.baidu.com') || u.includes('baidu')) return 'baidu';
+      if (u.includes('drive.uc.cn') || u.includes('uc.cn')) return 'uc';
+      if (u.includes('cloud.189.cn') || u.includes('189.cn')) return 'cloud189';
+      if (u.includes('aliyundrive.com') || u.includes('alipan.com')) return 'aliyun';
+      if (u.includes('123pan.com') || u.includes('123684.com')) return '123pan';
+      if (u.includes('share.weiyun.com')) return 'weiyun';
+      if (u.includes('pan.xunlei.com')) return 'xunlei';
+      if (u.includes('115.com')) return '115';
+      return 'other';
+    };
+
+    // 清洗标题：去掉 Pansou 常见的 [xxx] 方括号标记与多余空格
+    const cleanTitle = (raw = '') =>
+      String(raw)
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const collected = [];
+
+    const pushItem = (raw, typeKey) => {
+      if (!raw) return;
+      const url = raw.url || raw.link || raw.shareUrl || '';
+      if (!url) return;
+      const detected = typeKey && typeKey !== 'other' ? typeKey : inferPanType(url);
+      const note = raw.note || raw.title || raw.name || raw.description || '';
+      collected.push({
+        title: cleanTitle(note) || `【Pansou】${kw || '学习资源'}`,
+        panType: detected,
+        panName: PAN_NAME_MAP[detected] || '网盘资源',
+        url,
+        pwd: raw.password || raw.pwd || raw.code || '',
+        size: raw.size || '大小未知',
+        category: raw.category || '网盘检索',
+        grade: raw.grade || '多学段',
+        type: raw.type || '网盘资源',
+        source: raw.source || 'pansou',
+        updateTime: (raw.datetime || raw.updateTime || raw.created_at || '').toString().split('T')[0] || new Date().toISOString().split('T')[0],
+        fileCount: raw.fileCount || raw.file_count || 1,
+        fromPansouApi: true
+      });
+    };
+
+    const data = respData && respData.data ? respData.data : respData;
+
+    // 情况一：真实 Pansou 的 merged_by_type 结构
+    if (data && typeof data === 'object' && data.merged_by_type && typeof data.merged_by_type === 'object') {
+      const groups = data.merged_by_type;
+      Object.keys(groups).forEach(typeKey => {
+        const list = groups[typeKey];
+        if (Array.isArray(list)) {
+          list.forEach(item => pushItem(item, typeKey));
+        }
+      });
+    } else if (Array.isArray(data)) {
+      // 情况二：data 本身是数组
+      data.forEach(item => pushItem(item, ''));
+    } else if (data && Array.isArray(data.items)) {
+      // 情况三：data.items 数组
+      data.items.forEach(item => pushItem(item, ''));
+    } else if (respData && Array.isArray(respData.list)) {
+      // 情况四：顶层 list 数组
+      respData.list.forEach(item => pushItem(item, ''));
+    }
+
+    // 按 panType 过滤
+    const filtered = panType === 'all'
+      ? collected
+      : collected.filter(i => i.panType === panType);
+
+    // 去重 (同一 url 只保留一条)
+    const seen = new Set();
+    return filtered.filter(i => {
+      if (seen.has(i.url)) return false;
+      seen.add(i.url);
+      return true;
+    });
   }
 
   generateDynamicResults(keyword, panType) {

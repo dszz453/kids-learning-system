@@ -339,10 +339,18 @@ const initialData = {
     }
   ],
   pansouConfig: {
-    apiUrl: 'http://localhost:8080',
-    enabled: false,
-    timeout: 10000,
+    apiUrl: 'https://pansou.19860819.xyz:8616',
+    auth: 'admin:Hik297360+',
+    enabled: true,
+    timeout: 12000,
     sources: ['quark', 'baidu', 'uc', 'cloud189'],
+    updatedAt: '2026-10-12T00:00:00Z'
+  },
+  pancheckConfig: {
+    apiUrl: 'https://pancheck.19860819.xyz:8616',
+    password: 'admin123',
+    enabled: true,
+    timeout: 15000,
     updatedAt: '2026-10-12T00:00:00Z'
   },
   aiConfig: {

@@ -5,11 +5,14 @@ let currentTab = 'panSearch';
 let currentPlayerResource = null;
 let activeQrSessionId = null;
 let qrPollingTimer = null;
+let currentAdminUser = null;
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
   initIcons();
+  checkAdminAuth(); // 优先校验管理员身份
   loadPansouConfig(); // 载入并回显 Pansou 服务地址与状态
+  loadPancheckConfig(); // 载入并回显 PanCheck 探针服务地址与状态
   loadCategories();
   loadResources();
   doPanSearch(); // 默认载入精品网盘资源
@@ -21,6 +24,145 @@ document.addEventListener('DOMContentLoaded', () => {
 function initIcons() {
   if (window.lucide) {
     window.lucide.createIcons();
+  }
+}
+
+// ==================== 管理员身份认证与登录控制 ====================
+async function checkAdminAuth() {
+  const token = localStorage.getItem('token');
+  const userArea = document.getElementById('adminUserArea');
+  const btnTrigger = document.getElementById('btnLoginTrigger');
+  const topAdminName = document.getElementById('topAdminName');
+
+  if (!token) {
+    if (userArea) userArea.classList.add('hidden');
+    if (btnTrigger) btnTrigger.classList.remove('hidden');
+    openLoginModal();
+    return false;
+  }
+
+  try {
+    const res = await fetch('/api/auth/me', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    if (data.success && data.user) {
+      currentAdminUser = data.user;
+      if (userArea) userArea.classList.remove('hidden');
+      if (btnTrigger) btnTrigger.classList.add('hidden');
+      if (topAdminName) {
+        topAdminName.innerText = `${data.user.nickname || '管理员'} (${data.user.username})`;
+      }
+      closeLoginModal();
+      return true;
+    } else {
+      // Token 无效或过期
+      localStorage.removeItem('token');
+      if (userArea) userArea.classList.add('hidden');
+      if (btnTrigger) btnTrigger.classList.remove('hidden');
+      openLoginModal();
+      return false;
+    }
+  } catch (e) {
+    console.warn('检查管理员身份异常:', e);
+    return false;
+  }
+}
+
+function openLoginModal() {
+  const modal = document.getElementById('adminLoginModal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    const uInput = document.getElementById('loginAdminUsername');
+    if (uInput && !uInput.value) uInput.value = 'admin';
+    const pInput = document.getElementById('loginAdminPassword');
+    if (pInput && !pInput.value) pInput.value = 'admin123';
+  }
+}
+
+function closeLoginModal() {
+  const modal = document.getElementById('adminLoginModal');
+  if (modal) modal.classList.add('hidden');
+  const errBox = document.getElementById('loginErrorMsg');
+  if (errBox) errBox.classList.add('hidden');
+}
+
+function fillDefaultAdminCredentials() {
+  const uInput = document.getElementById('loginAdminUsername');
+  const pInput = document.getElementById('loginAdminPassword');
+  if (uInput) uInput.value = 'admin';
+  if (pInput) pInput.value = 'admin123';
+}
+
+async function handleAdminLogin() {
+  const username = (document.getElementById('loginAdminUsername').value || '').trim();
+  const password = (document.getElementById('loginAdminPassword').value || '').trim();
+  const errBox = document.getElementById('loginErrorMsg');
+  const btn = document.getElementById('btnAdminLoginSubmit');
+
+  if (!username || !password) {
+    if (errBox) {
+      errBox.innerText = '请输入管理员用户名与密码';
+      errBox.classList.remove('hidden');
+    }
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="inline-block animate-spin mr-1">⌛</span><span>登录中...</span>`;
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.success && data.token) {
+      localStorage.setItem('token', data.token);
+      currentAdminUser = data.user;
+      closeLoginModal();
+      const userArea = document.getElementById('adminUserArea');
+      const btnTrigger = document.getElementById('btnLoginTrigger');
+      const topAdminName = document.getElementById('topAdminName');
+      if (userArea) userArea.classList.remove('hidden');
+      if (btnTrigger) btnTrigger.classList.add('hidden');
+      if (topAdminName) {
+        topAdminName.innerText = `${data.user.nickname || '管理员'} (${data.user.username})`;
+      }
+      initIcons();
+      // 重新载入各个模块配置数据
+      loadPansouConfig();
+      loadPanAccounts();
+      loadUsers();
+      loadAiConfig();
+    } else {
+      if (errBox) {
+        errBox.innerText = data.message || '登录失败，请检查账号和密码';
+        errBox.classList.remove('hidden');
+      }
+    }
+  } catch (err) {
+    if (errBox) {
+      errBox.innerText = '请求异常: ' + err.message;
+      errBox.classList.remove('hidden');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="log-in" class="w-4 h-4"></i><span>登 录 管 理 后 台</span>`;
+    initIcons();
+  }
+}
+
+function handleAdminLogout() {
+  if (confirm('确定要退出当前管理员登录吗？退出后可切换其他管理员账号。')) {
+    localStorage.removeItem('token');
+    currentAdminUser = null;
+    const userArea = document.getElementById('adminUserArea');
+    const btnTrigger = document.getElementById('btnLoginTrigger');
+    if (userArea) userArea.classList.add('hidden');
+    if (btnTrigger) btnTrigger.classList.remove('hidden');
+    openLoginModal();
   }
 }
 
@@ -55,11 +197,13 @@ async function loadPansouConfig() {
     if (data.success && data.config) {
       const cfg = data.config;
       const urlInput = document.getElementById('pansouApiUrlInput');
+      const authInput = document.getElementById('pansouAuthInput');
       const enabledBox = document.getElementById('pansouEnabledCheckbox');
       const timeoutInput = document.getElementById('pansouTimeoutInput');
       const badge = document.getElementById('pansouStatusBadge');
 
       if (urlInput) urlInput.value = cfg.apiUrl || 'http://localhost:8080';
+      if (authInput) authInput.value = cfg.auth || '';
       if (enabledBox) enabledBox.checked = Boolean(cfg.enabled);
       if (timeoutInput) timeoutInput.value = cfg.timeout || 8000;
 
@@ -80,6 +224,7 @@ async function loadPansouConfig() {
 
 async function savePansouConfig() {
   const apiUrl = document.getElementById('pansouApiUrlInput').value.trim();
+  const auth = document.getElementById('pansouAuthInput') ? document.getElementById('pansouAuthInput').value.trim() : '';
   const enabled = document.getElementById('pansouEnabledCheckbox').checked;
   const timeout = Number(document.getElementById('pansouTimeoutInput').value) || 8000;
   const btn = document.getElementById('btnSavePansou');
@@ -94,7 +239,7 @@ async function savePansouConfig() {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
       },
-      body: JSON.stringify({ apiUrl, enabled, timeout })
+      body: JSON.stringify({ apiUrl, auth, enabled, timeout })
     });
     const result = await res.json();
     alert(result.message || 'Pansou 服务端点配置已成功保存！');
@@ -103,13 +248,14 @@ async function savePansouConfig() {
     alert('保存 Pansou 配置失败: ' + err.message);
   } finally {
     btn.disabled = false;
-    btn.innerHTML = `<i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存配置</span>`;
+    btn.innerHTML = `<i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存</span>`;
     initIcons();
   }
 }
 
 async function testPansouConnection() {
   const apiUrl = document.getElementById('pansouApiUrlInput').value.trim();
+  const auth = document.getElementById('pansouAuthInput') ? document.getElementById('pansouAuthInput').value.trim() : '';
   const resBox = document.getElementById('pansouTestResultBox');
   const btn = document.getElementById('btnTestPansou');
 
@@ -131,7 +277,7 @@ async function testPansouConnection() {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
       },
-      body: JSON.stringify({ apiUrl })
+      body: JSON.stringify({ apiUrl, auth })
     });
     const result = await res.json();
     if (result.success && result.reachable) {
@@ -146,7 +292,117 @@ async function testPansouConnection() {
     resBox.innerHTML = `✗ <strong>请求异常：</strong> ${err.message}`;
   } finally {
     btn.disabled = false;
-    btn.innerHTML = `<i data-lucide="activity" class="w-3.5 h-3.5"></i><span>测试连通性</span>`;
+    btn.innerHTML = `<i data-lucide="activity" class="w-3.5 h-3.5"></i><span>测试</span>`;
+    initIcons();
+  }
+}
+
+// ==================== 0.1 PanCheck 外部探针服务配置与测试 ====================
+async function loadPancheckConfig() {
+  try {
+    const res = await fetch('/api/pan/pancheck/config', {
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+    });
+    const data = await res.json();
+    if (data.success && data.config) {
+      const cfg = data.config;
+      const urlInput = document.getElementById('pancheckApiUrlInput');
+      const pwdInput = document.getElementById('pancheckPasswordInput');
+      const enabledBox = document.getElementById('pancheckEnabledCheckbox');
+      const timeoutInput = document.getElementById('pancheckTimeoutInput');
+      const badge = document.getElementById('pancheckStatusBadge');
+
+      if (urlInput) urlInput.value = cfg.apiUrl || '';
+      if (pwdInput) pwdInput.value = cfg.password || '';
+      if (enabledBox) enabledBox.checked = Boolean(cfg.enabled);
+      if (timeoutInput) timeoutInput.value = cfg.timeout || 15000;
+
+      if (badge) {
+        if (cfg.enabled && cfg.apiUrl) {
+          badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800';
+          badge.innerText = '已启用外部探针';
+        } else {
+          badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-bold bg-slate-200 text-slate-600';
+          badge.innerText = '未启用 (使用内置探针)';
+        }
+      }
+    }
+  } catch (err) {
+    console.error('加载 PanCheck 配置失败:', err);
+  }
+}
+
+async function savePancheckConfig() {
+  const apiUrl = document.getElementById('pancheckApiUrlInput').value.trim();
+  const password = document.getElementById('pancheckPasswordInput').value.trim();
+  const enabled = document.getElementById('pancheckEnabledCheckbox').checked;
+  const timeout = Number(document.getElementById('pancheckTimeoutInput').value) || 15000;
+  const btn = document.getElementById('btnSavePancheck');
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="inline-block animate-spin mr-1">⌛</span><span>保存中...</span>`;
+
+  try {
+    const res = await fetch('/api/pan/pancheck/config', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+      },
+      body: JSON.stringify({ apiUrl, password, enabled, timeout })
+    });
+    const result = await res.json();
+    alert(result.message || 'PanCheck 探针配置已成功保存！');
+    loadPancheckConfig();
+  } catch (err) {
+    alert('保存 PanCheck 配置失败: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存</span>`;
+    initIcons();
+  }
+}
+
+async function testPancheckConnection() {
+  const apiUrl = document.getElementById('pancheckApiUrlInput').value.trim();
+  const password = document.getElementById('pancheckPasswordInput').value.trim();
+  const resBox = document.getElementById('pancheckTestResultBox');
+  const btn = document.getElementById('btnTestPancheck');
+
+  if (!apiUrl) {
+    alert('请先输入待测试的 PanCheck 服务地址');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="inline-block animate-spin mr-1">⌛</span><span>测试中...</span>`;
+  resBox.classList.remove('hidden');
+  resBox.className = 'text-xs p-2.5 rounded-xl border bg-amber-50 text-amber-800 border-amber-200';
+  resBox.innerHTML = `正在向 <strong>${apiUrl}</strong> 发起探针能力测试（含密码校验）...`;
+
+  try {
+    const res = await fetch('/api/pan/pancheck/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+      },
+      body: JSON.stringify({ apiUrl, password })
+    });
+    const result = await res.json();
+    if (result.success && result.reachable) {
+      resBox.className = 'text-xs p-2.5 rounded-xl border bg-emerald-50 text-emerald-800 border-emerald-200';
+      resBox.innerHTML = `✓ <strong>连通成功！</strong> ${result.message}`;
+    } else {
+      resBox.className = 'text-xs p-2.5 rounded-xl border bg-rose-50 text-rose-800 border-rose-200';
+      resBox.innerHTML = `✗ <strong>连通失败：</strong> ${result.message}`;
+    }
+  } catch (err) {
+    resBox.className = 'text-xs p-2.5 rounded-xl border bg-rose-50 text-rose-800 border-rose-200';
+    resBox.innerHTML = `✗ <strong>请求异常：</strong> ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="activity" class="w-3.5 h-3.5"></i><span>测试</span>`;
     initIcons();
   }
 }

@@ -299,6 +299,48 @@
       "panSource": "local_disk",
       "speedupSupport": true,
       "createdAt": "2026-10-12T00:52:37.785Z"
+    },
+    {
+      "id": "res_local_1791773408267_gvfg",
+      "title": "唐诗配乐诵读合辑-本地息屏磨耳朵",
+      "categoryId": "cat_eng",
+      "type": "audio",
+      "url": "/api/stream/local?path=data%2Flocal_media%2F%E5%94%90%E8%AF%97%E9%85%8D%E4%B9%90%E8%AF%B5%E8%AF%BB%E5%90%88%E8%BE%91-%E6%9C%AC%E5%9C%B0%E6%81%AF%E5%B1%8F%E7%A3%A8%E8%80%B3%E6%9C%B5.mp3",
+      "audioUrl": null,
+      "localPath": "data/local_media/唐诗配乐诵读合辑-本地息屏磨耳朵.mp3",
+      "size": "41 B",
+      "duration": "本地文件",
+      "coverUrl": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&auto=format&fit=crop",
+      "description": "从本地硬盘导入：data/local_media/唐诗配乐诵读合辑-本地息屏磨耳朵.mp3",
+      "tags": [
+        "本地硬盘",
+        "audio",
+        "免流量极速"
+      ],
+      "panSource": "local_disk",
+      "speedupSupport": true,
+      "createdAt": "2026-10-12T02:50:08.267Z"
+    },
+    {
+      "id": "res_local_1791773430301_56ho",
+      "title": "唐诗配乐诵读合辑-本地息屏磨耳朵",
+      "categoryId": "cat_eng",
+      "type": "audio",
+      "url": "/api/stream/local?path=data%2Flocal_media%2F%E5%94%90%E8%AF%97%E9%85%8D%E4%B9%90%E8%AF%B5%E8%AF%BB%E5%90%88%E8%BE%91-%E6%9C%AC%E5%9C%B0%E6%81%AF%E5%B1%8F%E7%A3%A8%E8%80%B3%E6%9C%B5.mp3",
+      "audioUrl": null,
+      "localPath": "data/local_media/唐诗配乐诵读合辑-本地息屏磨耳朵.mp3",
+      "size": "41 B",
+      "duration": "本地文件",
+      "coverUrl": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&auto=format&fit=crop",
+      "description": "从本地硬盘导入：data/local_media/唐诗配乐诵读合辑-本地息屏磨耳朵.mp3",
+      "tags": [
+        "本地硬盘",
+        "audio",
+        "免流量极速"
+      ],
+      "panSource": "local_disk",
+      "speedupSupport": true,
+      "createdAt": "2026-10-12T02:50:30.301Z"
     }
   ],
   "users": [
@@ -409,15 +451,23 @@
   },
   "transferTasks": [],
   "pansouConfig": {
-    "apiUrl": "http://192.168.31.180:8080",
+    "apiUrl": "https://pansou.19860819.xyz:8616",
+    "auth": "admin:Hik297360+",
     "enabled": true,
-    "timeout": 8000,
+    "timeout": 12000,
     "sources": [
       "quark",
       "baidu",
       "uc",
       "cloud189"
     ],
-    "updatedAt": "2026-10-12T02:07:11.843Z"
+    "updatedAt": "2026-10-12T03:28:02.788Z"
+  },
+  "pancheckConfig": {
+    "apiUrl": "https://pancheck.19860819.xyz:8616",
+    "password": "admin123",
+    "enabled": true,
+    "timeout": 15000,
+    "updatedAt": "2026-10-12T03:28:02.795Z"
   }
 }
