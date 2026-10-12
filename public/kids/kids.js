@@ -643,6 +643,18 @@ function bindMediaEventListeners(media, res) {
     updatePlayPauseIcons(false);
   });
 
+  // 网盘资源播放失败时给出可读提示（夸克非会员直链限制 / 授权失效等）
+  media.addEventListener('error', async () => {
+    const src = String(media.currentSrc || media.src || '');
+    if (!src.includes('/api/pan/stream')) return;
+    let reason = '网盘资源暂时无法播放';
+    try {
+      const r = await fetch(src, { headers: { 'Range': 'bytes=0-1' } });
+      if (!r.ok) reason = (await r.text()).substring(0, 160) || reason;
+    } catch (e) { /* 忽略 */ }
+    kidToast('⚠️ ' + reason, 6000);
+  });
+
   // 进度拖动跳转
   const seekBar = document.getElementById('fullPlayerSeekBar');
   seekBar.oninput = () => {
